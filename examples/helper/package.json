@@ -6,7 +6,9 @@
     "synth": "cdk synth",
     "diff": "cdk diff",
     "deploy": "cdk deploy",
-    "destroy": "cdk destroy"
+    "destroy": "cdk destroy",
+    "get-token": "agentharness token",
+    "chat": "agentharness chat"
   },
   "devDependencies": {
     "agentharness": "workspace:*",

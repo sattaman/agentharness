@@ -164,3 +164,17 @@ docs/
 - TypeScript 6.0 (typescript-eslint doesn't support 7 yet; revisit when it does), strict plus `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess` and related flags.
 - ESLint with typed, assertion-hostile rules (`strictTypeChecked`, no `as` assertions, no `!`). Prettier for formatting. Vitest for tests.
 - `skipLibCheck` is on only because aws-cdk-lib's declarations don't compile under `exactOptionalPropertyTypes`.
+
+## D15 — Calling an agent: Cognito-issued bearer tokens
+
+- Each stage stack has one Cognito user pool (Lite plan, no self sign-up) and one app client. Every Harness uses a `customJwtAuthorizer` that accepts only that client's access tokens. A Harness with a JWT authorizer rejects calls without a valid token (403).
+- `agentharness token` mints a one-hour access token. It uses the caller's AWS credentials to give a `cli` user a fresh random password, then signs in with it. Only someone with IAM access to the pool can get a token.
+- `agentharness chat` uses the AWS SDK with a small middleware that replaces SigV4 with `Authorization: Bearer`, so the SDK still decodes the event stream.
+- Callers can override the model per request, so the execution role allows only the configured model's ARNs. IAM is what stops anyone switching to a more expensive model.
+- **Known limitation:** two token requests for the same stage at the same moment can race on the password reset, and one fails. Revisit in M6, when CI starts minting tokens.
+
+## D16 — Nightly cleanup lives outside the kit
+
+- Deleting stacks every night is a safety net for the maintainer's account, not a kit feature, so it's a separate CDK app in `ops/cleanup`, deployed once.
+- EventBridge Scheduler calls CloudFormation `DeleteStack` directly (a universal target): no Lambda. There's one schedule per stage, at 02:00 Europe/London.
+- The schedule's role can delete only `agentharness-<stage>` stacks, not its own stack (checked with `iam simulate-principal-policy`).

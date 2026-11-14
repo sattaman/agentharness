@@ -1,8 +1,6 @@
 packages:
   - packages/*
   - examples/*
+  - ops/*
 allowBuilds:
   esbuild: true
-minimumReleaseAgeExclude:
-  - '@eslint/config-array@0.23.6'
-  - eslint@10.15.0

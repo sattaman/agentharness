@@ -1,6 +1,6 @@
 # Plan: MVP, CI, deployment and safety
 
-Status: **agreed**, 2026-11-14. Revised after an external review (Codex); the changes are listed in §10. Naming, structure and git conventions are recorded in [decisions.md](decisions.md) D12–D14.
+Status: **agreed**, 2026-11-14. **M1 done** (deployed and verified 2026-11-14), plus bearer-token auth (D15) and nightly cleanup (D16). Revised after an external review (Codex); the changes are listed in §10. Naming, structure and git conventions are recorded in [decisions.md](decisions.md) D12–D14.
 
 ---
 

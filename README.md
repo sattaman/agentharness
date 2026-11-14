@@ -14,11 +14,12 @@ agents/
 
 ## Repo layout
 
-| Path                     | What it is                                                  |
-| ------------------------ | ----------------------------------------------------------- |
-| `packages/agentharness/` | The npm package: CDK constructs and the `agentharness` CLI  |
-| `examples/helper/`       | A complete example, laid out exactly like a user's own repo |
-| `docs/`                  | Decisions, plan, research and one-off AWS setup             |
+| Path                     | What it is                                                                 |
+| ------------------------ | -------------------------------------------------------------------------- |
+| `packages/agentharness/` | The npm package: CDK constructs and the `agentharness` CLI                 |
+| `examples/helper/`       | A complete example, laid out exactly like a user's own repo                |
+| `ops/cleanup/`           | Separate app that deletes dev stacks every night (maintainer account only) |
+| `docs/`                  | Decisions, plan, research and one-off AWS setup                            |
 
 ## Develop
 
@@ -29,4 +30,15 @@ pnpm install
 pnpm check      # format, build, typecheck, lint, test
 ```
 
-Deploying needs an AWS account set up as described in [docs/setup.md](docs/setup.md).
+## Deploy and chat
+
+Needs an AWS account set up as described in [docs/setup.md](docs/setup.md).
+
+```bash
+pnpm build
+cd examples/helper
+pnpm deploy              # stack agentharness-dev (add -- -c stage=<name> for another stage)
+pnpm chat helper         # streams answers, using a Cognito bearer token
+pnpm get-token           # print a one-hour token to call the agent yourself
+pnpm destroy
+```

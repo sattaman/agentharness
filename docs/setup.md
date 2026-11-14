@@ -39,7 +39,9 @@ Bootstrap's `--custom-permissions-boundary` only bounds CDK's own execution role
 }
 ```
 
-This applies to every CDK app on the machine, which is what you want when the account requires the boundary. Skip it if your account has no boundary.
+This applies to every CDK app on the machine, which is what you want when the account requires the boundary. To scope it to one app instead, put the same `"@aws-cdk/core:permissionsBoundary"` entry in that app's `cdk.context.json` (gitignored). Skip both if your account has no boundary.
+
+Don't use `cdk … -c '@aws-cdk/core:permissionsBoundary={"name":"…"}'`: `-c` passes a string, and CDK silently ignores it, so roles are created without the boundary.
 
 ## Each shell
 
