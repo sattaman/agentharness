@@ -1,0 +1,76 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "OnlyAssumeCdkRoles",
+      "Effect": "Deny",
+      "Action": "sts:AssumeRole",
+      "NotResource": "arn:aws:iam::*:role/cdk-hnb659fds-*"
+    },
+    {
+      "Sid": "NoAccountBillingOrOrgChanges",
+      "Effect": "Deny",
+      "Action": [
+        "account:*",
+        "organizations:*",
+        "billing:*",
+        "payments:*",
+        "tax:*",
+        "invoicing:*",
+        "aws-portal:Modify*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "SafetyNetsStayOn",
+      "Effect": "Deny",
+      "Action": [
+        "budgets:Modify*",
+        "budgets:Delete*",
+        "budgets:Update*",
+        "budgets:Execute*",
+        "budgets:CreateBudgetAction",
+        "ce:DeleteAnomaly*",
+        "ce:UpdateAnomaly*",
+        "cloudtrail:StopLogging",
+        "cloudtrail:DeleteTrail",
+        "cloudtrail:UpdateTrail"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "NoIrreversiblePurchases",
+      "Effect": "Deny",
+      "Action": [
+        "savingsplans:CreateSavingsPlan",
+        "ec2:PurchaseReservedInstancesOffering",
+        "ec2:PurchaseHostReservation",
+        "rds:PurchaseReservedDBInstancesOffering",
+        "dynamodb:PurchaseReservedCapacityOfferings",
+        "elasticache:PurchaseReservedCacheNodesOffering",
+        "es:PurchaseReservedInstanceOffering",
+        "route53domains:RegisterDomain",
+        "route53domains:TransferDomain",
+        "route53domains:RenewDomain",
+        "aws-marketplace:Subscribe"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ProtectCdkBootstrap",
+      "Effect": "Deny",
+      "Action": ["cloudformation:DeleteStack", "cloudformation:UpdateTerminationProtection"],
+      "Resource": "arn:aws:cloudformation:*:*:stack/CDKToolkit/*"
+    },
+    {
+      "Sid": "HandsOffOtherProjectAiDigest",
+      "Effect": "Deny",
+      "Action": ["dynamodb:*", "s3:*"],
+      "Resource": [
+        "arn:aws:dynamodb:*:*:table/OTHER-WORKLOAD-*",
+        "arn:aws:s3:::OTHER-WORKLOAD-*",
+        "arn:aws:s3:::OTHER-WORKLOAD-*/*"
+      ]
+    }
+  ]
+}

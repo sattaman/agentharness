@@ -1,0 +1,120 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ExplicitAllowAll",
+      "Effect": "Allow",
+      "Action": "*",
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyNewIdentitiesWithoutThisBoundary",
+      "Effect": "Deny",
+      "Action": [
+        "iam:CreateUser",
+        "iam:CreateRole",
+        "iam:PutRolePermissionsBoundary",
+        "iam:PutUserPermissionsBoundary"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "ArnNotLike": {
+          "iam:PermissionsBoundary": "arn:aws:iam::*:policy/agentharness-boundary"
+        }
+      }
+    },
+    {
+      "Sid": "DenyEditingThisBoundary",
+      "Effect": "Deny",
+      "Action": [
+        "iam:CreatePolicyVersion",
+        "iam:DeletePolicy",
+        "iam:DeletePolicyVersion",
+        "iam:SetDefaultPolicyVersion"
+      ],
+      "Resource": "arn:aws:iam::*:policy/agentharness-boundary"
+    },
+    {
+      "Sid": "DenyRemovingBoundaries",
+      "Effect": "Deny",
+      "Action": ["iam:DeleteUserPermissionsBoundary", "iam:DeleteRolePermissionsBoundary"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "NoLongLivedCredentials",
+      "Effect": "Deny",
+      "Action": [
+        "iam:CreateAccessKey",
+        "iam:CreateLoginProfile",
+        "iam:UpdateLoginProfile",
+        "iam:CreateServiceSpecificCredential"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "NoAccountBillingOrOrgChanges",
+      "Effect": "Deny",
+      "Action": [
+        "account:*",
+        "organizations:*",
+        "billing:*",
+        "payments:*",
+        "tax:*",
+        "invoicing:*",
+        "aws-portal:Modify*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "SafetyNetsStayOn",
+      "Effect": "Deny",
+      "Action": [
+        "budgets:Modify*",
+        "budgets:Delete*",
+        "budgets:Update*",
+        "budgets:Execute*",
+        "budgets:CreateBudgetAction",
+        "ce:DeleteAnomaly*",
+        "ce:UpdateAnomaly*",
+        "cloudtrail:StopLogging",
+        "cloudtrail:DeleteTrail",
+        "cloudtrail:UpdateTrail"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "NoIrreversiblePurchases",
+      "Effect": "Deny",
+      "Action": [
+        "savingsplans:CreateSavingsPlan",
+        "ec2:PurchaseReservedInstancesOffering",
+        "ec2:PurchaseHostReservation",
+        "rds:PurchaseReservedDBInstancesOffering",
+        "dynamodb:PurchaseReservedCapacityOfferings",
+        "elasticache:PurchaseReservedCacheNodesOffering",
+        "es:PurchaseReservedInstanceOffering",
+        "route53domains:RegisterDomain",
+        "route53domains:TransferDomain",
+        "route53domains:RenewDomain",
+        "aws-marketplace:Subscribe"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ProtectCdkBootstrap",
+      "Effect": "Deny",
+      "Action": ["cloudformation:DeleteStack", "cloudformation:UpdateTerminationProtection"],
+      "Resource": "arn:aws:cloudformation:*:*:stack/CDKToolkit/*"
+    },
+    {
+      "Sid": "HandsOffOtherProjectAiDigest",
+      "Effect": "Deny",
+      "Action": ["dynamodb:*", "s3:*"],
+      "Resource": [
+        "arn:aws:dynamodb:*:*:table/OTHER-WORKLOAD-*",
+        "arn:aws:s3:::OTHER-WORKLOAD-*",
+        "arn:aws:s3:::OTHER-WORKLOAD-*/*"
+      ]
+    }
+  ]
+}

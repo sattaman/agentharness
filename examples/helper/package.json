@@ -1,0 +1,17 @@
+{
+  "name": "helper-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "synth": "cdk synth",
+    "diff": "cdk diff",
+    "deploy": "cdk deploy",
+    "destroy": "cdk destroy"
+  },
+  "devDependencies": {
+    "agentharness": "workspace:*",
+    "aws-cdk": "2.1148.1",
+    "aws-cdk-lib": "2.277.0",
+    "constructs": "10.8.1"
+  }
+}
