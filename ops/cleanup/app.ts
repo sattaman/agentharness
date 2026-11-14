@@ -15,7 +15,7 @@ const stack = new Stack(app, 'agentharness-cleanup', {
 });
 
 for (const stage of stages) {
-  const stackName = `agentharness-${stage}`;
+  const stackName = `agentharness-${stage}-agents`;
   new Schedule(stack, `Delete-${stage}`, {
     description: `Deletes ${stackName} every night`,
     schedule: ScheduleExpression.cron({ hour: '2', minute: '0', timeZone: TimeZone.EUROPE_LONDON }),

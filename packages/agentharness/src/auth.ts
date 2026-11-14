@@ -1,24 +1,25 @@
-import { Duration, RemovalPolicy, Stack, Validations } from 'aws-cdk-lib';
+import { CfnResource, Duration, Validations } from 'aws-cdk-lib';
+import type { CfnHarness } from 'aws-cdk-lib/aws-bedrockagentcore';
 import {
-  AccountRecovery,
-  FeaturePlan,
+  OAuthScope,
+  ResourceServerScope,
   UserPool,
   type UserPoolClient,
 } from 'aws-cdk-lib/aws-cognito';
 import { Construct } from 'constructs';
 
+const resourceServerId = 'agentharness';
+const invokeScope = 'invoke';
+
 export class Auth extends Construct {
   readonly userPool: UserPool;
   readonly client: UserPoolClient;
-  readonly discoveryUrl: string;
 
   constructor(scope: Construct, id: string) {
     super(scope, id);
 
-    this.userPool = new UserPool(this, 'Users', {
-      featurePlan: FeaturePlan.LITE,
+    this.userPool = new UserPool(this, 'Pool', {
       selfSignUpEnabled: false,
-      accountRecovery: AccountRecovery.NONE,
       passwordPolicy: {
         minLength: 16,
         requireLowercase: true,
@@ -26,28 +27,63 @@ export class Auth extends Construct {
         requireDigits: true,
         requireSymbols: true,
       },
-      deletionProtection: false,
-      removalPolicy: RemovalPolicy.DESTROY,
+    });
+
+    const invoke = new ResourceServerScope({
+      scopeName: invokeScope,
+      scopeDescription: 'Call agents',
+    });
+    const resourceServer = this.userPool.addResourceServer('ResourceServer', {
+      identifier: resourceServerId,
+      scopes: [invoke],
     });
 
     this.client = this.userPool.addClient('Client', {
-      authFlows: { userPassword: true },
-      generateSecret: false,
-      preventUserExistenceErrors: true,
+      generateSecret: true,
+      oAuth: {
+        flows: { clientCredentials: true },
+        scopes: [OAuthScope.resourceServer(resourceServer, invoke)],
+      },
       accessTokenValidity: Duration.hours(1),
     });
+    allowClientTokenAuthOnly(this.client);
 
-    this.discoveryUrl = `https://cognito-idp.${Stack.of(this).region}.amazonaws.com/${this.userPool.userPoolId}/.well-known/openid-configuration`;
-
-    const accepted: Record<string, string> = {
-      'AwsSolutions-COG2':
-        'Users are created with one-off passwords by the IAM-authenticated CLI; nobody signs in interactively.',
-      'AwsSolutions-COG3':
-        'Threat protection needs the Plus feature plan, not justified for CLI-issued tokens.',
-      'AwsSolutions-COG8': 'The Lite feature plan is enough for CLI-issued tokens.',
-    };
-    for (const [rule, reason] of Object.entries(accepted)) {
-      Validations.of(this.userPool).acknowledge({ id: `AwsSolutions::${rule}`, reason });
-    }
+    Validations.of(this.userPool).acknowledge(
+      {
+        id: 'AwsSolutions::AwsSolutions-COG2',
+        reason:
+          'The only client uses ALLOW_CLIENT_TOKEN_AUTH, which cannot sign users in, so there is no sign-in for MFA to protect.',
+      },
+      {
+        id: 'AwsSolutions::AwsSolutions-COG3',
+        reason: 'Threat protection inspects user sign-ins, which the client-token flow rules out.',
+      },
+      {
+        id: 'AwsSolutions::AwsSolutions-COG8',
+        reason:
+          'The Plus plan adds user sign-in protections; this pool only issues machine tokens.',
+      },
+    );
   }
+
+  get jwtAuthorizer(): CfnHarness.CustomJWTAuthorizerConfigurationProperty {
+    return {
+      discoveryUrl: `${this.userPool.userPoolProviderUrl}/.well-known/openid-configuration`,
+      allowedClients: [this.client.userPoolClientId],
+      allowedScopes: [`${resourceServerId}/${invokeScope}`],
+    };
+  }
+}
+
+function allowClientTokenAuthOnly(client: UserPoolClient): void {
+  const resource = client.node.defaultChild;
+  if (!CfnResource.isCfnResource(resource))
+    throw new Error('UserPoolClient has no CloudFormation resource');
+
+  resource.addPropertyOverride('ExplicitAuthFlows', ['ALLOW_CLIENT_TOKEN_AUTH']);
+  Validations.of(resource).acknowledge({
+    id: 'CloudFormation-Validate::W3030',
+    reason:
+      'The bundled schema predates ALLOW_CLIENT_TOKEN_AUTH (Cognito GetClientToken, August 2026).',
+  });
 }

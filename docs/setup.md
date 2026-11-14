@@ -25,7 +25,14 @@ One-off steps before the first `cdk deploy`. Steps marked 👤 are done by a per
     ```bash
     pnpm dlx aws-cdk bootstrap --custom-permissions-boundary agentharness-boundary --termination-protection
     ```
-13. Activate the `project` cost allocation tag in Billing as soon as the first resource exists. It takes up to about 48 hours.
+13. **Log retention** (one-off, account-wide but limited to agentharness runtime logs):
+    ```bash
+    aws logs put-account-policy --policy-name agentharness-runtime-logs --policy-type RETENTION_POLICY \
+      --policy-document '{"retentionInDays": 30, "enforcementMode": "RETROACTIVE"}' \
+      --selection-criteria 'LogGroupNamePrefix="/aws/bedrock-agentcore/runtimes/harness_agentharness_"'
+    ```
+    Add `--dry-run` first to see which log groups it would affect. It takes effect within 24 hours.
+14. Activate the `project` cost allocation tag in Billing as soon as the first resource exists. It takes up to about 48 hours.
 
 ## Permissions boundary for app roles
 

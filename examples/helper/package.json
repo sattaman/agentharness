@@ -3,10 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "synth": "cdk synth",
-    "diff": "cdk diff",
-    "deploy": "cdk deploy",
-    "destroy": "cdk destroy",
+    "synth": "cdk synth --all",
+    "diff": "cdk diff --all",
+    "deploy": "cdk deploy --all",
+    "destroy": "cdk destroy '*-agents'",
     "get-token": "agentharness token",
     "chat": "agentharness chat"
   },

@@ -14,9 +14,14 @@ const agentName = /^[a-z][a-z0-9]{0,15}$/;
 export function loadAgents(dir: string): AgentSpec[] {
   if (!existsSync(dir))
     throw new Error(`No ${dir}/ folder found. Create ${dir}/<name>/agent.json.`);
-  return readdirSync(dir, { withFileTypes: true })
+
+  const agents = readdirSync(dir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => loadAgent(join(dir, entry.name)));
+
+  if (agents.length === 0)
+    throw new Error(`${dir}/ has no agents. Create ${dir}/<name>/agent.json.`);
+  return agents;
 }
 
 export function loadAgent(dir: string): AgentSpec {
@@ -26,17 +31,28 @@ export function loadAgent(dir: string): AgentSpec {
       `${dir}: agent names must be 1-16 lowercase letters or digits, starting with a letter`,
     );
   }
-  const config = agentConfigSchema.safeParse(JSON.parse(readRequired(dir, 'agent.json')));
+
+  const config = agentConfigSchema.safeParse(readJson(join(dir, 'agent.json')));
   if (!config.success) throw new Error(`${dir}/agent.json\n${z.prettifyError(config.error)}`);
 
-  const prompt = readRequired(dir, 'prompt.md').trim();
+  const prompt = read(join(dir, 'prompt.md')).trim();
   if (prompt === '') throw new Error(`${dir}/prompt.md is empty`);
 
   return { name, prompt, config: config.data };
 }
 
-function readRequired(dir: string, file: string): string {
-  const path = join(dir, file);
+function read(path: string): string {
   if (!existsSync(path)) throw new Error(`${path} is missing`);
   return readFileSync(path, 'utf8');
+}
+
+function readJson(path: string): unknown {
+  try {
+    return JSON.parse(read(path));
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new Error(`${path} is not valid JSON: ${error.message}`, { cause: error });
+    }
+    throw error;
+  }
 }

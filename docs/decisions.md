@@ -149,7 +149,7 @@ docs/
 - The example depends on `"agentharness": "workspace:*"`, so it can only use the published API.
 - **Users write no code.** Their repo holds `agents/<name>/`, `package.json` and a `cdk.json` containing `{ "app": "npx agentharness synth" }`. The exported construct is available for adding agents to an existing CDK app.
 - **Agent folder:** `agent.json` + `prompt.md` + `knowledge/`. JSON with no `$schema` line. Editors get the schema through `.vscode/settings.json` `json.schemas` (later through SchemaStore). The CLI validates against the same zod schema either way.
-- **Resource names:** stack `agentharness-<stage>`; resources `agentharness-<stage>-<agent>-*`; AgentCore Harness `agentharness_<stage>_<agent>`. Tags: `project`, `stage`, `agent`.
+- **Resource names:** stacks `agentharness-<stage>-auth` and `agentharness-<stage>-agents`; resources `agentharness-<stage>-<agent>-*`; AgentCore Harness `agentharness_<stage>_<agent>`. Tags: `project`, `stage`, `agent`.
 
 ## D13 — Git conventions
 
@@ -165,16 +165,20 @@ docs/
 - ESLint with typed, assertion-hostile rules (`strictTypeChecked`, no `as` assertions, no `!`). Prettier for formatting. Vitest for tests.
 - `skipLibCheck` is on only because aws-cdk-lib's declarations don't compile under `exactOptionalPropertyTypes`.
 
-## D15 — Calling an agent: Cognito-issued bearer tokens
+## D15 — Calling an agent: machine-to-machine OAuth tokens
 
-- Each stage stack has one Cognito user pool (Lite plan, no self sign-up) and one app client. Every Harness uses a `customJwtAuthorizer` that accepts only that client's access tokens. A Harness with a JWT authorizer rejects calls without a valid token (403).
-- `agentharness token` mints a one-hour access token. It uses the caller's AWS credentials to give a `cli` user a fresh random password, then signs in with it. Only someone with IAM access to the pool can get a token.
-- `agentharness chat` uses the AWS SDK with a small middleware that replaces SigV4 with `Authorization: Bearer`, so the SDK still decodes the event stream.
-- Callers can override the model per request, so the execution role allows only the configured model's ARNs. IAM is what stops anyone switching to a more expensive model.
-- **Known limitation:** two token requests for the same stage at the same moment can race on the password reset, and one fails. Revisit in M6, when CI starts minting tokens.
+- **Two stacks per stage.** `agentharness-<stage>-auth` holds a Cognito user pool with one app client. It's long-lived and has termination protection. `agentharness-<stage>-agents` holds the agents. It comes and goes (deleted nightly in dev) and references the auth stack with strong cross-stack references, so the auth stack can't be changed or deleted underneath it.
+- **Stable credentials, short-lived tokens.** The client ID and secret stay the same across agent redeploys. Tokens are JWT access tokens valid for 1 hour. AgentCore accepts JWTs or SigV4, never static API keys, so a non-expiring token isn't possible, by design.
+- **Client-token flow.** The app client has a secret, the `client_credentials` OAuth flow and the `agentharness/invoke` scope, and `ALLOW_CLIENT_TOKEN_AUTH` as its _only_ auth flow, which cannot sign users in. `GetClientToken` (August 2026) issues tokens without a hosted domain.
+- **The authorizer config lives in one place.** Every Harness gets `Auth.jwtAuthorizer`: discovery URL, allowed client and required scope. Cognito access tokens have no `aud` claim, so it checks the client rather than the audience.
+- **Secret delivery.** The CLI reads the secret with the caller's IAM credentials (`DescribeUserPoolClient`) and exchanges it for a token, so only someone with IAM access can mint tokens. It never appears in stack outputs. When an external caller needs it, store it in Secrets Manager.
+- **Trust boundary.** A token holder can override the system prompt and model per request. IAM limits the execution role to the configured model, and the Harness has no tools, so the damage is limited to off-task answers and token spend. Treat tokens as trusted-caller credentials.
+- **Cost.** About $0.002–0.003 per token request. The CLI reuses a token until a minute before it expires.
+- **Later:** one client per consumer (separate revocation and attribution) and per-agent scopes.
 
 ## D16 — Nightly cleanup lives outside the kit
 
 - Deleting stacks every night is a safety net for the maintainer's account, not a kit feature, so it's a separate CDK app in `ops/cleanup`, deployed once.
 - EventBridge Scheduler calls CloudFormation `DeleteStack` directly (a universal target): no Lambda. There's one schedule per stage, at 02:00 Europe/London.
-- The schedule's role can delete only `agentharness-<stage>` stacks, not its own stack (checked with `iam simulate-principal-policy`).
+- The schedule's role can delete only `agentharness-<stage>-agents` stacks, not its own stack (checked with `iam simulate-principal-policy`).
+- **Runtime logs.** The Harness creates its log group outside the stack, at creation time, so the stack can neither pre-create nor delete it. An account-level CloudWatch Logs retention policy (November 2026) on the prefix `/aws/bedrock-agentcore/runtimes/harness_agentharness_` keeps them for 30 days with no Lambda. CloudFormation can't create that policy type yet, so it's a one-off command in `setup.md`.

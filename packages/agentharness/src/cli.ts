@@ -20,7 +20,7 @@ const stage = stageSchema.parse(values.stage);
 if (command === 'synth') {
   buildApp('agents').synth();
 } else if (command === 'token') {
-  console.log(await issueToken(stage));
+  console.log((await issueToken(stage)).token);
 } else if (command === 'chat' && agent !== undefined) {
   await chat(agent, stage);
 } else {

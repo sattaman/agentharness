@@ -15,6 +15,10 @@ describe('loadAgents', () => {
     ]);
   });
 
+  it('explains an empty agents folder', () => {
+    expect(() => loadAgents(join(fixtures, 'empty'))).toThrow(/has no agents/);
+  });
+
   it('explains a missing agents folder', () => {
     expect(() => loadAgents(join(fixtures, 'nowhere'))).toThrow(/No .*nowhere\/ folder found/);
   });
@@ -25,6 +29,7 @@ describe('loadAgent', () => {
     ['badmodel', /agent\.json[\s\S]*model/],
     ['noprompt', /prompt\.md is missing/],
     ['Bad-Name', /agent names must be/],
+    ['badjson', /agent\.json is not valid JSON/],
   ])('rejects %s', (folder, message) => {
     expect(() => loadAgent(join(fixtures, 'invalid', folder))).toThrow(message);
   });

@@ -37,8 +37,10 @@ Needs an AWS account set up as described in [docs/setup.md](docs/setup.md).
 ```bash
 pnpm build
 cd examples/helper
-pnpm deploy              # stack agentharness-dev (add -- -c stage=<name> for another stage)
-pnpm chat helper         # streams answers, using a Cognito bearer token
-pnpm get-token           # print a one-hour token to call the agent yourself
-pnpm destroy
+pnpm deploy              # agentharness-dev-auth (credentials, long-lived) + agentharness-dev-agents
+pnpm chat helper         # streams answers, authenticated with a one-hour OAuth token
+pnpm get-token           # print a token to call the agent yourself
+pnpm destroy             # removes the agents; credentials stay
 ```
+
+Add `-- -c stage=<name>` to any command for another stage.

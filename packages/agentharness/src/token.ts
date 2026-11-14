@@ -1,50 +1,37 @@
 import {
-  AdminCreateUserCommand,
-  AdminSetUserPasswordCommand,
   CognitoIdentityProviderClient,
-  InitiateAuthCommand,
-  UsernameExistsException,
+  DescribeUserPoolClientCommand,
+  GetClientTokenCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
-import { randomBytes } from 'node:crypto';
-import { requireOutput, stackOutputs } from './outputs.js';
+import type { TokenIdentity, TokenIdentityProvider } from '@smithy/types';
+import { findCredentials } from './deployment.js';
 
-const username = 'cli';
+const refreshMargin = 60_000;
 
-export async function issueToken(stage: string): Promise<string> {
-  const outputs = await stackOutputs(stage);
-  const userPoolId = requireOutput(outputs, 'UserPoolId');
-  const clientId = requireOutput(outputs, 'UserPoolClientId');
-  const cognito = new CognitoIdentityProviderClient({});
-  const password = `${randomBytes(24).toString('base64url')}aA1!`;
+export async function issueToken(stage: string): Promise<TokenIdentity> {
+  const { userPoolId, clientId } = await findCredentials(stage);
+  const cognito = new CognitoIdentityProviderClient();
 
-  try {
-    await cognito.send(
-      new AdminCreateUserCommand({
-        UserPoolId: userPoolId,
-        Username: username,
-        MessageAction: 'SUPPRESS',
-      }),
-    );
-  } catch (error) {
-    if (!(error instanceof UsernameExistsException)) throw error;
+  const { UserPoolClient } = await cognito.send(
+    new DescribeUserPoolClientCommand({ UserPoolId: userPoolId, ClientId: clientId }),
+  );
+  const secret = UserPoolClient?.ClientSecret;
+  if (secret === undefined) throw new Error('The app client has no secret');
+
+  const { ClientAuthenticationResult: result } = await cognito.send(
+    new GetClientTokenCommand({ ClientId: clientId, Secret: secret }),
+  );
+  if (result?.AccessToken === undefined || result.ExpiresIn === undefined) {
+    throw new Error('Cognito did not return an access token');
   }
-  await cognito.send(
-    new AdminSetUserPasswordCommand({
-      UserPoolId: userPoolId,
-      Username: username,
-      Password: password,
-      Permanent: true,
-    }),
-  );
+  return { token: result.AccessToken, expiration: new Date(Date.now() + result.ExpiresIn * 1000) };
+}
 
-  const { AuthenticationResult } = await cognito.send(
-    new InitiateAuthCommand({
-      ClientId: clientId,
-      AuthFlow: 'USER_PASSWORD_AUTH',
-      AuthParameters: { USERNAME: username, PASSWORD: password },
-    }),
-  );
-  const token = AuthenticationResult?.AccessToken;
-  if (token === undefined) throw new Error('Cognito did not return an access token');
-  return token;
+export function tokenProvider(stage: string): TokenIdentityProvider {
+  let current: TokenIdentity | undefined;
+  return async () => {
+    const expiresSoon = (current?.expiration?.getTime() ?? 0) - Date.now() < refreshMargin;
+    if (current === undefined || expiresSoon) current = await issueToken(stage);
+    return current;
+  };
 }

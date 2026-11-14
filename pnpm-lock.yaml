@@ -232,6 +232,12 @@ importers:
       '@aws-sdk/client-cognito-identity-provider':
         specifier: 3.1168.0
         version: 3.1168.0
+      '@smithy/core':
+        specifier: 3.40.0
+        version: 3.40.0
+      '@smithy/types':
+        specifier: 4.20.0
+        version: 4.20.0
       cdk-nag:
         specifier: 3.0.2
         version: 3.0.2(aws-cdk-lib@2.277.0(constructs@10.8.1))(constructs@10.8.1)
@@ -239,9 +245,6 @@ importers:
         specifier: 4.6.7
         version: 4.6.7
     devDependencies:
-      '@smithy/types':
-        specifier: 4.20.0
-        version: 4.20.0
       aws-cdk-lib:
         specifier: 2.277.0
         version: 2.277.0(constructs@10.8.1)

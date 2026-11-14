@@ -1,23 +1,52 @@
 import { Match, Template } from 'aws-cdk-lib/assertions';
-import { describe, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import { createApp } from '../src/app.js';
-import { AgentHarnessStack } from '../src/stack.js';
+import type { AgentSpec } from '../src/load.js';
+import { AgentsStack, AuthStack } from '../src/stack.js';
 
-const helper = {
+const helper: AgentSpec = {
   name: 'helper',
   prompt: 'You are a test agent.',
   config: { model: 'nova-2-lite', maxTokens: 512, maxIterations: 3, timeoutSeconds: 60 },
-} as const;
+};
 
-function synth(): Template {
-  return Template.fromStack(
-    new AgentHarnessStack(createApp(), { stage: 'test', agents: [helper] }),
+const app = createApp();
+const authStack = new AuthStack(app, { stage: 'test' });
+const agentsStack = new AgentsStack(app, { stage: 'test', auth: authStack.auth, agents: [helper] });
+const template = Template.fromStack(agentsStack);
+const authTemplate = Template.fromStack(authStack);
+
+const roleSchema = z.object({
+  Properties: z.object({
+    Policies: z.array(
+      z.object({
+        PolicyDocument: z.object({
+          Statement: z.array(
+            z.object({ Action: z.union([z.string(), z.array(z.string())]), Resource: z.unknown() }),
+          ),
+        }),
+      }),
+    ),
+  }),
+});
+
+function statementsOf(service: string) {
+  const roles = template.findResources('AWS::IAM::Role', {
+    Properties: {
+      AssumeRolePolicyDocument: {
+        Statement: [Match.objectLike({ Principal: { Service: service } })],
+      },
+    },
+  });
+  return Object.values(roles).flatMap((role) =>
+    roleSchema.parse(role).Properties.Policies.flatMap((policy) => policy.PolicyDocument.Statement),
   );
 }
 
-describe('AgentHarnessStack', () => {
+describe('AgentsStack', () => {
   it('creates a locked-down harness per agent', () => {
-    synth().hasResourceProperties('AWS::BedrockAgentCore::Harness', {
+    template.hasResourceProperties('AWS::BedrockAgentCore::Harness', {
       HarnessName: 'agentharness_test_helper',
       Model: { BedrockModelConfig: { ModelId: 'global.amazon.nova-2-lite-v1:0', MaxTokens: 512 } },
       SystemPrompt: [{ Text: 'You are a test agent.' }],
@@ -26,39 +55,58 @@ describe('AgentHarnessStack', () => {
       MaxIterations: 3,
       TimeoutSeconds: 60,
       AuthorizerConfiguration: {
-        CustomJWTAuthorizer: { DiscoveryUrl: Match.anyValue(), AllowedClients: [Match.anyValue()] },
+        CustomJWTAuthorizer: {
+          DiscoveryUrl: Match.anyValue(),
+          AllowedClients: [Match.anyValue()],
+          AllowedScopes: ['agentharness/invoke'],
+        },
       },
     });
   });
 
-  it('only lets the execution role invoke the configured model', () => {
-    synth().hasResourceProperties('AWS::IAM::Policy', {
-      PolicyDocument: {
-        Statement: Match.arrayWith([
-          Match.objectLike({
-            Action: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
-            Resource: [
-              Match.anyValue(),
-              'arn:aws:bedrock:*::foundation-model/amazon.nova-2-lite-v1:0',
-            ],
-          }),
-        ]),
-      },
-    });
+  it('lets the harness invoke only the configured model', () => {
+    const bedrock = statementsOf('bedrock-agentcore.amazonaws.com').filter(({ Action }) =>
+      [Action].flat().some((action) => action.startsWith('bedrock:')),
+    );
+    expect(bedrock).toHaveLength(1);
+    expect(bedrock[0]?.Action).toEqual([
+      'bedrock:InvokeModel',
+      'bedrock:InvokeModelWithResponseStream',
+    ]);
+    expect(bedrock[0]?.Resource).toHaveLength(2);
+    expect(bedrock[0]?.Resource).toContain(
+      'arn:aws:bedrock:*::foundation-model/amazon.nova-2-lite-v1:0',
+    );
   });
 
   it('tags resources with stage and agent', () => {
-    synth().hasResourceProperties('AWS::IAM::Role', {
+    template.hasResourceProperties('AWS::IAM::Role', {
       Tags: Match.arrayWith([
         { Key: 'agent', Value: 'helper' },
         { Key: 'stage', Value: 'test' },
       ]),
     });
   });
+});
 
-  it('does not allow self sign-up', () => {
-    synth().hasResourceProperties('AWS::Cognito::UserPool', {
+describe('AuthStack', () => {
+  it('issues machine tokens only, scoped to invoking agents', () => {
+    authTemplate.hasResourceProperties('AWS::Cognito::UserPoolClient', {
+      ExplicitAuthFlows: ['ALLOW_CLIENT_TOKEN_AUTH'],
+      GenerateSecret: true,
+      AllowedOAuthFlows: ['client_credentials'],
+      AllowedOAuthScopes: [Match.anyValue()],
+    });
+    authTemplate.hasResourceProperties('AWS::Cognito::UserPoolResourceServer', {
+      Identifier: 'agentharness',
+      Scopes: [{ ScopeName: 'invoke', ScopeDescription: 'Call agents' }],
+    });
+    authTemplate.hasResourceProperties('AWS::Cognito::UserPool', {
       AdminCreateUserConfig: { AllowAdminCreateUserOnly: true },
     });
+  });
+
+  it('is protected from accidental deletion', () => {
+    expect(authStack.terminationProtection).toBe(true);
   });
 });

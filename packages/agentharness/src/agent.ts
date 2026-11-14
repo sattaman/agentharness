@@ -1,61 +1,49 @@
-import { Stack, Validations } from 'aws-cdk-lib';
 import { CfnHarness } from 'aws-cdk-lib/aws-bedrockagentcore';
-import { PolicyStatement, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
-import type { Auth } from './auth.js';
+import { arn, serviceRole } from './iam.js';
 import type { AgentSpec } from './load.js';
 import { models } from './schema.js';
 
 export interface AgentProps {
   readonly spec: AgentSpec;
   readonly stage: string;
-  readonly auth: Auth;
+  readonly authorizer: CfnHarness.CustomJWTAuthorizerConfigurationProperty;
 }
 
 export class Agent extends Construct {
   readonly harness: CfnHarness;
 
-  constructor(scope: Construct, id: string, { spec, stage, auth }: AgentProps) {
+  constructor(scope: Construct, id: string, { spec, stage, authorizer }: AgentProps) {
     super(scope, id);
-    const { account, region } = Stack.of(this);
     const harnessName = `agentharness_${stage}_${spec.name}`;
     const model = models[spec.config.model];
 
-    const role = new Role(this, 'ExecutionRole', {
-      assumedBy: new ServicePrincipal('bedrock-agentcore.amazonaws.com', {
-        conditions: { StringEquals: { 'aws:SourceAccount': account } },
-      }),
-    });
-    role.addToPolicy(
-      new PolicyStatement({
+    const role = serviceRole(this, 'ExecutionRole', 'bedrock-agentcore.amazonaws.com', [
+      {
+        why: 'Call the configured model. Global inference may serve it from any region.',
         actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
         resources: [
-          `arn:aws:bedrock:${region}:${account}:inference-profile/${model.modelId}`,
+          arn('bedrock', `inference-profile/${model.modelId}`),
           `arn:aws:bedrock:*::foundation-model/${model.foundationModel}`,
         ],
-      }),
-    );
-    role.addToPolicy(
-      new PolicyStatement({
+      },
+      {
+        why: 'Write runtime logs. The runtime names its log groups when it starts.',
         actions: [
           'logs:CreateLogGroup',
           'logs:CreateLogStream',
           'logs:PutLogEvents',
           'logs:DescribeLogStreams',
         ],
-        resources: [
-          `arn:aws:logs:${region}:${account}:log-group:/aws/bedrock-agentcore/runtimes/*`,
-        ],
-      }),
-    );
-    role.addToPolicy(
-      new PolicyStatement({
+        resources: [arn('logs', 'log-group:/aws/bedrock-agentcore/runtimes/*')],
+      },
+      {
+        why: 'Find log groups, as in the AgentCore documented execution role.',
         actions: ['logs:DescribeLogGroups'],
-        resources: [`arn:aws:logs:${region}:${account}:log-group:*`],
-      }),
-    );
-    role.addToPolicy(
-      new PolicyStatement({
+        resources: [arn('logs', 'log-group:*')],
+      },
+      {
+        why: 'Send traces and pull the runtime image. These actions have no resource-level permissions.',
         actions: [
           'xray:PutTraceSegments',
           'xray:PutTelemetryRecords',
@@ -65,45 +53,29 @@ export class Agent extends Construct {
           'sts:GetServiceBearerToken',
         ],
         resources: ['*'],
-      }),
-    );
-    role.addToPolicy(
-      new PolicyStatement({
+      },
+      {
+        why: 'Publish runtime metrics, limited to the AgentCore namespace.',
         actions: ['cloudwatch:PutMetricData'],
         resources: ['*'],
         conditions: { StringEquals: { 'cloudwatch:namespace': 'bedrock-agentcore' } },
-      }),
-    );
-    role.addToPolicy(
-      new PolicyStatement({
+      },
+      {
+        why: 'Exchange the caller token for a workload token. The runtime names identities harness_<name>-<id>.',
         actions: [
           'bedrock-agentcore:GetWorkloadAccessToken',
           'bedrock-agentcore:GetWorkloadAccessTokenForJWT',
           'bedrock-agentcore:GetWorkloadAccessTokenForUserId',
         ],
         resources: [
-          `arn:aws:bedrock-agentcore:${region}:${account}:workload-identity-directory/default`,
-          `arn:aws:bedrock-agentcore:${region}:${account}:workload-identity-directory/default/workload-identity/harness_${harnessName}-*`,
+          arn('bedrock-agentcore', 'workload-identity-directory/default'),
+          arn(
+            'bedrock-agentcore',
+            `workload-identity-directory/default/workload-identity/harness_${harnessName}-*`,
+          ),
         ],
-      }),
-    );
-    const wildcards: Record<string, string> = {
-      [`arn:aws:bedrock:*::foundation-model/${model.foundationModel}`]:
-        'Global inference profiles route to the foundation model in any region.',
-      'arn:aws:logs:<AWS::Region>:<AWS::AccountId>:log-group:/aws/bedrock-agentcore/runtimes/*':
-        'The runtime creates its log groups per harness.',
-      'arn:aws:logs:<AWS::Region>:<AWS::AccountId>:log-group:*':
-        'Matches the AgentCore documented execution role: DescribeLogGroups lists across the account.',
-      [`arn:aws:bedrock-agentcore:<AWS::Region>:<AWS::AccountId>:workload-identity-directory/default/workload-identity/harness_${harnessName}-*`]:
-        'The runtime names workload identities harness_<harnessName>-<id>.',
-      '*': 'X-Ray, ECR Public auth and CloudWatch metrics have no resource-level permissions.',
-    };
-    for (const [resource, reason] of Object.entries(wildcards)) {
-      Validations.of(role).acknowledge({
-        id: `AwsSolutions::AwsSolutions-IAM5[Resource::${resource}]`,
-        reason,
-      });
-    }
+      },
+    ]);
 
     this.harness = new CfnHarness(this, 'Harness', {
       harnessName,
@@ -120,13 +92,7 @@ export class Agent extends Construct {
       memory: { disabled: {} },
       maxIterations: spec.config.maxIterations,
       timeoutSeconds: spec.config.timeoutSeconds,
-      authorizerConfiguration: {
-        customJwtAuthorizer: {
-          discoveryUrl: auth.discoveryUrl,
-          allowedClients: [auth.client.userPoolClientId],
-        },
-      },
+      authorizerConfiguration: { customJwtAuthorizer: authorizer },
     });
-    this.harness.node.addDependency(role);
   }
 }

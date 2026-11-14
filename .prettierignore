@@ -1,2 +1,3 @@
 pnpm-lock.yaml
 docs/research-2026-11.md
+packages/agentharness/test/fixtures/invalid/badjson/
