@@ -27,10 +27,23 @@ One-off steps before the first `cdk deploy`. Steps marked 👤 are done by a per
     ```
 13. Activate the `project` cost allocation tag in Billing as soon as the first resource exists. It takes up to about 48 hours.
 
+## Permissions boundary for app roles
+
+Bootstrap's `--custom-permissions-boundary` only bounds CDK's own execution role. Roles that the stacks create need the boundary too, through CDK's standard context key. Put it in `~/.cdk.json`, outside the repo:
+
+```json
+{
+  "context": {
+    "@aws-cdk/core:permissionsBoundary": { "name": "agentharness-boundary" }
+  }
+}
+```
+
+This applies to every CDK app on the machine, which is what you want when the account requires the boundary. Skip it if your account has no boundary.
+
 ## Each shell
 
 ```bash
 export AWS_PROFILE=<profile>
 export AWS_REGION=<region>
-export AGENTHARNESS_PERMISSIONS_BOUNDARY=agentharness-boundary
 ```

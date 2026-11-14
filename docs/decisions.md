@@ -125,12 +125,12 @@ CDK, scripts and any future runtime code are all TypeScript, so there is one too
   - Can't delete the CDK bootstrap stack.
   - Can't touch other workloads' resources in a shared account (`OTHER-WORKLOAD-*` placeholder).
 - **Permissions boundary** ([iam/boundary.json](iam/boundary.json)):
-  - Applied to the cfn-exec role (`cdk bootstrap --custom-permissions-boundary`) and to every role the stacks create (`AGENTHARNESS_PERMISSIONS_BOUNDARY`).
+  - Applied to the cfn-exec role (`cdk bootstrap --custom-permissions-boundary`) and to every role the stacks create, through CDK's standard `@aws-cdk/core:permissionsBoundary` context in the user's `~/.cdk.json`. The kit has no boundary setting of its own.
   - Every new role or user must carry the boundary, and the boundary can't be edited or removed.
   - The guardrail denies are repeated in the boundary, so a stack can't do indirectly what the developer can't do directly.
   - **Consequence:** budgets are managed by hand, not by CDK.
 - **Budget access stop:** when the monthly budget threshold is hit, a budget action attaches a deny-all policy to the developer identity. This stops new actions; it does not stop resources that are already running (see the plan's teardown runbook).
-- **Account-specific values** (profile names, region, boundary name) live in gitignored files such as `.claude/settings.local.json`, never in the repo.
+- **Account-specific values** (profile names, region, boundary name) live outside the repo: `~/.cdk.json`, `~/.aws/config`, and gitignored files such as `.claude/settings.local.json`.
 - **Verified** with `iam simulate-principal-policy`:
   - Denied as intended: IAM user and key creation, budget edits, purchases, other-workload deletes, assuming other roles, and roles without the boundary.
   - Allowed as intended: CDK deploy role, S3, Lambda, Bedrock.

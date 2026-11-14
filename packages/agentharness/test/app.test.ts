@@ -1,10 +1,10 @@
-import { Stack } from 'aws-cdk-lib';
+import { Stack, type App } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
 import { Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
 
-function roleIn(app: ReturnType<typeof createApp>): Template {
+function roleIn(app: App): Template {
   const stack = new Stack(app, 'Test');
   new Role(stack, 'Role', { assumedBy: new ServicePrincipal('lambda.amazonaws.com') });
   return Template.fromStack(stack);
@@ -17,11 +17,10 @@ describe('createApp', () => {
     });
   });
 
-  it('applies the permissions boundary to every role when one is given', () => {
-    roleIn(createApp({ permissionsBoundary: 'my-boundary' })).hasResourceProperties(
-      'AWS::IAM::Role',
-      { PermissionsBoundary: Match.anyValue() },
-    );
+  it('honours the standard CDK permissions boundary context', () => {
+    const app = createApp();
+    app.node.setContext('@aws-cdk/core:permissionsBoundary', { name: 'my-boundary' });
+    roleIn(app).hasResourceProperties('AWS::IAM::Role', { PermissionsBoundary: Match.anyValue() });
   });
 
   it('adds no permissions boundary by default', () => {
