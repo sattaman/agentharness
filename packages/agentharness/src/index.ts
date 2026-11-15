@@ -17,6 +17,14 @@ export {
   type AgentConfig,
   type CallersConfig,
 } from './schema.js';
-export { costMicros, reservationMicros, type Usage } from './spend.js';
+export {
+  addUsage,
+  costMicros,
+  ledgerKey,
+  noUsage,
+  reservationMicros,
+  toMicros,
+  type Usage,
+} from './spend.js';
 export { AgentsStack, AuthStack, type AuthStackProps, type StageProps } from './stack.js';
 export { diff, sync, type Changes } from './sync.js';

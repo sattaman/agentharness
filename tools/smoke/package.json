@@ -1,0 +1,19 @@
+{
+  "name": "agentharness-smoke",
+  "private": true,
+  "description": "Live checks against a deployed stage of the example. Needs AWS credentials; costs about a cent per run.",
+  "type": "module",
+  "scripts": {
+    "smoke": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@aws-sdk/client-bedrock-agentcore": "3.1168.0",
+    "@aws-sdk/client-cloudformation": "3.1168.0",
+    "@aws-sdk/client-cognito-identity-provider": "3.1168.0",
+    "@aws-sdk/client-dynamodb": "3.1168.0",
+    "@aws-sdk/client-iam": "3.1168.0",
+    "agentharness": "workspace:*",
+    "agentharness-chat": "workspace:*"
+  }
+}

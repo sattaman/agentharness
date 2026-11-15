@@ -9,5 +9,8 @@
   },
   "dependencies": {
     "agentharness": "workspace:*"
+  },
+  "exports": {
+    "./client": "./client.ts"
   }
 }

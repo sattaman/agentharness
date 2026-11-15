@@ -162,6 +162,7 @@ CDK, scripts and any future runtime code are all TypeScript, so there is one too
 packages/agentharness/   the one published package: CDK constructs, the front door, and the `agentharness` CLI (synth, sync)
 examples/helper/         exactly what a user's repo looks like
 tools/chat/              a terminal client of the API for testing; private, never published
+tools/smoke/             live checks against a deployed stage; private, never published
 docs/
 ```
 
@@ -233,7 +234,7 @@ caller ──token──▶ API Gateway ──▶ Lambda ──SigV4──▶ Ha
   - the token has a scope for at least one agent;
   - the body matches the request schema (the same zod schema as the Lambda, converted to JSON Schema).
     It also throttles the stage to 5 requests a second, burst 10.
-- **The Lambda** (`handler.ts`, with its logic in `request.ts`):
+- **The Lambda** (`handler.ts` for AWS wiring; its decisions in `serve.ts` and `request.ts`, unit-tested with an injected front door):
   - accepts exactly `{ agent, message, sessionId }`;
   - requires the exact scope `agentharness/<agent>` in the token, and that the caller's _current_ grants still include that agent;
   - derives the session from the caller, agent and session ID, so callers can't share or hijack sessions;

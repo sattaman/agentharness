@@ -204,6 +204,16 @@ pnpm chat helper
 
 `pnpm chat` runs [`tools/chat`](tools/chat), a small client that uses only the public API, the same way another team's app would. It isn't part of the published package.
 
+To check a deployed stage end to end, run `pnpm smoke` (`STAGE=<name>` for a stage other than `dev`). [`tools/smoke`](tools/smoke) checks:
+
+- the agent answers from its knowledge;
+- the front door refuses missing tokens, extra fields and ungranted agents;
+- a Harness refuses tokens and unapproved models;
+- the spend ledger matches the cost of concurrent calls, and the budget limit returns 429;
+- IAM simulations of both roles.
+
+It needs AWS credentials and costs about a cent per run.
+
 ## Design principles
 
 1. **Convention over configuration.** Three files per agent; infrastructure, IAM and monitoring are derived.
@@ -223,22 +233,23 @@ pnpm chat helper
 | `examples/helper/`       | A complete example, laid out exactly like a user's own repo        |
 | `ops/cleanup/`           | Optional app that deletes dev agent stacks every night             |
 | `tools/chat/`            | A terminal client of the API, for testing (not published)          |
+| `tools/smoke/`           | Live checks against a deployed stage (not published)               |
 | `docs/`                  | Decisions, plan, one-off AWS setup and IAM policy templates        |
 
 Inside `packages/agentharness/src/`:
 
-| File                                 | Concept                                                                  |
-| ------------------------------------ | ------------------------------------------------------------------------ |
-| `schema.ts`, `load.ts`               | The conventions: file schemas, model prices, loading and validation      |
-| `agent.ts`, `knowledge.ts`           | One Harness and its execution role; one knowledge base and gateway       |
-| `auth.ts`, `api.ts`                  | Cognito callers and scopes; the front door (API Gateway, Lambda, ledger) |
-| `request.ts`, `handler.ts`           | Front-door rules (pure, unit-tested) and the streaming Lambda            |
-| `spend.ts`, `ledger.ts`              | Call cost and reservations (pure); the DynamoDB spend ledger             |
-| `reply.ts`                           | The streamed reply format, shared by the Lambda and the CLI              |
-| `stack.ts`, `app.ts`                 | The two stacks per stage, and the CDK app with cdk-nag                   |
-| `iam.ts`, `names.ts`                 | Roles with explained permissions; resource names                         |
-| `cli.ts`, `sync.ts`, `deployment.ts` | The `agentharness` command line: `synth` and `sync`                      |
-| `contract.ts`                        | The API's request and reply formats, exported as `agentharness/contract` |
+| File                                   | Concept                                                                  |
+| -------------------------------------- | ------------------------------------------------------------------------ |
+| `schema.ts`, `load.ts`                 | The conventions: file schemas, model prices, loading and validation      |
+| `agent.ts`, `knowledge.ts`             | One Harness and its execution role; one knowledge base and gateway       |
+| `auth.ts`, `api.ts`                    | Cognito callers and scopes; the front door (API Gateway, Lambda, ledger) |
+| `request.ts`, `serve.ts`, `handler.ts` | Front-door rules and decisions (unit-tested); the Lambda's AWS wiring    |
+| `spend.ts`, `ledger.ts`                | Call cost and reservations (pure); the DynamoDB spend ledger             |
+| `reply.ts`                             | The streamed reply format, shared by the Lambda and the CLI              |
+| `stack.ts`, `app.ts`                   | The two stacks per stage, and the CDK app with cdk-nag                   |
+| `iam.ts`, `names.ts`                   | Roles with explained permissions; resource names                         |
+| `cli.ts`, `sync.ts`, `deployment.ts`   | The `agentharness` command line: `synth` and `sync`                      |
+| `contract.ts`                          | The API's request and reply formats, exported as `agentharness/contract` |
 
 ## Develop
 

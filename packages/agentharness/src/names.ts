@@ -9,6 +9,7 @@ export const stackNames = {
 export const outputKeys = {
   userPoolId: 'UserPoolId',
   apiUrl: 'ApiUrl',
+  ledgerTable: 'LedgerTable',
   clientId: (caller: string): string => `${caller}ClientId`,
   harnessArn: (agent: string): string => `${agent}HarnessArn`,
   knowledgeBucket: (agent: string): string => `${agent}KnowledgeBucket`,

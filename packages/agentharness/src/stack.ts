@@ -52,6 +52,7 @@ export class AuthStack extends Stack {
 
     new CfnOutput(this, outputKeys.userPoolId, { value: this.auth.userPool.userPoolId });
     new CfnOutput(this, outputKeys.apiUrl, { value: this.api.url });
+    new CfnOutput(this, outputKeys.ledgerTable, { value: this.api.ledger.tableName });
     for (const [caller, { client }] of this.auth.clients) {
       new CfnOutput(this, outputKeys.clientId(caller), { value: client.userPoolClientId });
     }
