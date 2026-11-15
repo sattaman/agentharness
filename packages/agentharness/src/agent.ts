@@ -1,4 +1,5 @@
 import { CfnHarness, type CfnHarnessProps } from 'aws-cdk-lib/aws-bedrockagentcore';
+import { Effect } from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
 import { arn, serviceRole, type Permission } from './iam.js';
 import { Knowledge } from './knowledge.js';
@@ -24,14 +25,24 @@ export class Agent extends Construct {
       : undefined;
     const gatewayArn = this.knowledge?.gateway.attrGatewayArn;
 
+    const inferenceProfile = arn('bedrock', `inference-profile/${model.modelId}`);
     const role = serviceRole(this, 'ExecutionRole', 'bedrock-agentcore.amazonaws.com', [
       {
-        why: 'Call the configured model. Global inference may serve it from any region.',
+        why: 'Call the configured model through its inference profile.',
         actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
-        resources: [
-          arn('bedrock', `inference-profile/${model.modelId}`),
-          `arn:aws:bedrock:*::foundation-model/${model.foundationModel}`,
-        ],
+        resources: [inferenceProfile],
+      },
+      {
+        why: 'Global inference may serve the model from any region, but only through that profile, so a caller who overrides the model gets nowhere.',
+        actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
+        resources: [`arn:aws:bedrock:*::foundation-model/${model.foundationModel}`],
+        conditions: { StringEquals: { 'bedrock:InferenceProfileArn': inferenceProfile } },
+      },
+      {
+        why: 'The runtime never switches roles; denied as AWS recommends for harness execution roles.',
+        effect: Effect.DENY,
+        actions: ['sts:AssumeRole'],
+        resources: ['*'],
       },
       {
         why: 'Write runtime logs. The runtime names its log groups when it starts.',

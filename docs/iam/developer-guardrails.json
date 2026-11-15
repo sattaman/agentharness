@@ -57,10 +57,13 @@
       "Resource": "*"
     },
     {
-      "Sid": "ProtectCdkBootstrap",
+      "Sid": "ProtectLongLivedStacks",
       "Effect": "Deny",
       "Action": ["cloudformation:DeleteStack", "cloudformation:UpdateTerminationProtection"],
-      "Resource": "arn:aws:cloudformation:*:*:stack/CDKToolkit/*"
+      "Resource": [
+        "arn:aws:cloudformation:*:*:stack/CDKToolkit/*",
+        "arn:aws:cloudformation:*:*:stack/agentharness-*-auth/*"
+      ]
     },
     {
       "Sid": "HandsOffOtherProjectAiDigest",

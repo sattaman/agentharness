@@ -29,7 +29,12 @@ const roleSchema = z.object({
       z.object({
         PolicyDocument: z.object({
           Statement: z.array(
-            z.object({ Action: z.union([z.string(), z.array(z.string())]), Resource: z.unknown() }),
+            z.object({
+              Effect: z.string(),
+              Action: z.union([z.string(), z.array(z.string())]),
+              Resource: z.unknown(),
+              Condition: z.unknown().optional(),
+            }),
           ),
         }),
       }),
@@ -152,16 +157,30 @@ describe('AgentsStack', () => {
     });
   });
 
-  it('lets the harness invoke only the configured model', () => {
+  it('lets the harness invoke the model only through its inference profile', () => {
     const invoke = statementsOf('bedrock-agentcore.amazonaws.com').filter(({ Action }) =>
       [Action].flat().some((action) => action.startsWith('bedrock:Invoke')),
     );
-    expect(invoke).toHaveLength(2);
-    for (const { Action, Resource } of invoke) {
-      expect(Action).toEqual(['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream']);
-      expect(Resource).toHaveLength(2);
-      expect(Resource).toContain('arn:aws:bedrock:*::foundation-model/amazon.nova-2-lite-v1:0');
-    }
+    const viaProfile = invoke.filter(({ Condition }) => Condition === undefined);
+    const foundationModel = invoke.filter(({ Condition }) => Condition !== undefined);
+    expect(viaProfile).toHaveLength(2);
+    expect(foundationModel).toHaveLength(2);
+    foundationModel.forEach(({ Resource, Condition }, i) => {
+      expect(Resource).toBe('arn:aws:bedrock:*::foundation-model/amazon.nova-2-lite-v1:0');
+      expect(Condition).toEqual({
+        StringEquals: { 'bedrock:InferenceProfileArn': viaProfile[i]?.Resource },
+      });
+    });
+  });
+
+  it('denies the harness switching roles', () => {
+    const denies = statementsOf('bedrock-agentcore.amazonaws.com').filter(
+      ({ Effect }) => Effect === 'Deny',
+    );
+    expect(denies).toEqual([
+      expect.objectContaining({ Action: 'sts:AssumeRole', Resource: '*' }),
+      expect.objectContaining({ Action: 'sts:AssumeRole', Resource: '*' }),
+    ]);
   });
 
   it('tags resources with stage and agent', () => {
