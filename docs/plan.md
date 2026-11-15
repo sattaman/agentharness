@@ -57,17 +57,17 @@ After the MVP, users install `agentharness` from npm into their own repo, laid o
 
 Each milestone ends with something that runs.
 
-| #    | Milestone                                                                                                                                                          | Done when                                                                                                                                                     |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| M0   | **Repo hygiene and offline CI**: rename, scrub the docs, `git init`, gitleaks, lint/format, Vitest, monorepo layout, **`pr.yml`**, a minimal README                | First commit passes the leak scan; PR checks are green and required on `main`; nothing account-specific is tracked                                            |
-| M0.5 | **Cost estimate**: a London-region estimate for Harness/Runtime, Gateway, Managed KB (storage + retrieval), tokens and logs; set the KB size cap and the CI budget | The numbers are in `docs/cost.md`; §9 Q3 is answered with data                                                                                                |
-| M1   | **Walking skeleton**: a hand-written stack with one `CfnHarness` (no KB) and a chat script                                                                         | Deployed to a personal stage; we get a streamed answer; destroy works and leaves nothing behind. _This de-risks the newest, least-documented resource first._ |
-| M2   | **Loader**: folder → `AgentSpec` (zod), with fixtures for valid and invalid cases                                                                                  | Unit tests cover every rule. M1's hard-coded values now come from `agent.json` / `prompt.md`                                                                  |
-| M3   | **Knowledge base**: S3 upload, Managed KB, ingestion custom resource, Gateway KB connector, Harness tool wiring                                                    | The chat answers a question whose answer exists only in `knowledge/`; the stream shows a `Retrieve` tool event. Measured cost matches M0.5                    |
-| M4   | **Construct API and synth tests**: the `Agents` construct and `agentharness synth` discovering `agents/*/`; template assertions; cdk-nag clean                     | The example contains no code; README walkthrough works from a clean clone                                                                                     |
-| M5   | **Dedicated AWS account + CI OIDC role** (see §8)                                                                                                                  | The role can deploy only in the new account; a run from a non-`main` branch is shown to fail to get credentials                                               |
-| M6   | **CI: deploy and smoke test**, manually approved                                                                                                                   | Approving a run deploys `stage=ci`, the smoke test passes, the job summary shows the result and token count, and the stage is torn down                       |
-| M7   | **Docs and release**: demo GIF, architecture diagram, security and cost sections; publish `agentharness@0.1.0` via npm trusted publishing                          | `npm pack` contents are reviewed; a stranger can follow the README                                                                                            |
+| #     | Milestone                                                                                                                                                           | Done when                                                                                                                                                     |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M0    | **Repo hygiene and offline CI**: rename, scrub the docs, `git init`, gitleaks, lint/format, Vitest, monorepo layout, **`pr.yml`**, a minimal README                 | First commit passes the leak scan; PR checks are green and required on `main`; nothing account-specific is tracked                                            |
+| M0.5  | **Cost estimate**: a London-region estimate for Harness/Runtime, Gateway, Managed KB (storage + retrieval), tokens and logs; set the KB size cap and the CI budget  | The numbers are in `docs/cost.md`; §9 Q3 is answered with data                                                                                                |
+| M1    | **Walking skeleton**: a hand-written stack with one `CfnHarness` (no KB) and a chat script                                                                          | Deployed to a personal stage; we get a streamed answer; destroy works and leaves nothing behind. _This de-risks the newest, least-documented resource first._ |
+| M2    | **Loader**: folder → `AgentSpec` (zod), with fixtures for valid and invalid cases                                                                                   | Unit tests cover every rule. M1's hard-coded values now come from `agent.json` / `prompt.md`                                                                  |
+| M3 ✅ | **Knowledge base** (cost check waits for M0.5): Per agent: S3 bucket, Managed KB, Gateway KB connector, Harness tool wiring; `agentharness sync` for ingestion (D6) | The chat answers a question whose answer exists only in `knowledge/`; the stream shows a `Retrieve` tool event. Measured cost matches M0.5                    |
+| M4    | **Construct API and synth tests**: the `Agents` construct and `agentharness synth` discovering `agents/*/`; template assertions; cdk-nag clean                      | The example contains no code; README walkthrough works from a clean clone                                                                                     |
+| M5    | **Dedicated AWS account + CI OIDC role** (see §8)                                                                                                                   | The role can deploy only in the new account; a run from a non-`main` branch is shown to fail to get credentials                                               |
+| M6    | **CI: deploy and smoke test**, manually approved                                                                                                                    | Approving a run deploys `stage=ci`, the smoke test passes, the job summary shows the result and token count, and the stage is torn down                       |
+| M7    | **Docs and release**: demo GIF, architecture diagram, security and cost sections; publish `agentharness@0.1.0` via npm trusted publishing                           | `npm pack` contents are reviewed; a stranger can follow the README                                                                                            |
 
 **Out of the MVP** (phase 2): web UI (AG-UI), the cost-reporter agent, a `create-agentharness` starter, evals, multiple regions, memory.
 
@@ -85,9 +85,9 @@ See D12. Each concept gets one file in `packages/agentharness/src/` (for example
 | Unit: loader rules, name validation, YAML errors                                                                                                                                                                         | Vitest + fixture folders | No        | Pre-commit (changed files), every PR            |
 | Synth: resource shape, IAM (no `*` actions or resources except where AWS requires them, and each one documented), "no `knowledge/` → no KB", `allowedTools` pinned, memory disabled, tags present, cdk-nag zero findings | `aws-cdk-lib/assertions` | No        | Every PR                                        |
 | IAM simulation: `iam simulate-principal-policy` for the CI role and the runtime roles (allowed and denied cases)                                                                                                         | AWS CLI                  | Read-only | When roles change; in M5                        |
-| Smoke: deploy, wait for ingestion, ask a golden question in a **fresh session**, check that the answer contains the planted fact **and** that a `Retrieve` tool event appeared, then report tokens                       | Vitest + SDK             | **Yes**   | Manually approved CI run; by hand from a laptop |
+| Smoke: deploy, `sync`, ask a golden question in a **fresh session**, check that the answer contains the planted fact **and** that a `Retrieve` tool event appeared, then report tokens                                   | Vitest + SDK             | **Yes**   | Manually approved CI run; by hand from a laptop |
 | Adversarial smoke: a planted "ignore your instructions" document; the agent must still answer the task and not echo the injected text                                                                                    | Vitest + SDK             | Yes       | With the smoke test                             |
-| Lifecycle: edit or delete a knowledge file, redeploy and confirm re-ingestion; empty `knowledge/`; failed ingestion surfaces as a deploy error; `destroy` leaves no stack, bucket or KB                                  | Script                   | Yes       | Before M7, then by hand                         |
+| Lifecycle: edit or delete a knowledge file, `sync` and confirm re-ingestion; empty `knowledge/`; failed ingestion fails `sync` with the file name; `destroy` leaves no stack, bucket or KB                               | Script                   | Yes       | Before M7, then by hand                         |
 | Evals (phase 2): `agents/<name>/evals.json` + LLM judge                                                                                                                                                                  | —                        | Yes       | Nightly / by hand                               |
 
 The smoke test checks for facts, not exact wording. The golden fact is a made-up token planted in `knowledge/` (for example "the office plant is called Ferngus") and appears nowhere else (not in the prompt). The text check alone doesn't prove retrieval, which is why the tool event is asserted as well. Snapshot tests were dropped: they churn with every CDK upgrade and duplicate the targeted assertions.
@@ -237,3 +237,75 @@ The smoke test checks for facts, not exact wording. The golden fact is a made-up
 
 - _A random golden fact per run._ That would mean uploading a new document and waiting for re-ingestion on every run. A fixed fact that appears only in `knowledge/`, together with the tool-event assertion, gives the same guarantee more cheaply.
 - _Hide the Q&A from the public job summary._ We kept a short answer because the demo content is public by design; the summary is still the visible proof that it works.
+
+## 11. Spend controls (next)
+
+**Principle:** identity and money are long-lived; compute is disposable. An **instance** is one deployed agent (one Harness).
+
+- **`agentharness-<stage>-control`** is long-lived and termination-protected (today's `-auth` stack, renamed). It holds:
+  - who may call: the Cognito client
+  - what each agent may do: one execution role per agent, with a stable name
+  - how much each agent may spend: a budget per agent
+- **`agentharness-<stage>-agents`** is disposable and deleted nightly. It holds only the Harnesses.
+
+| Need             | Mechanism                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Observe**      | Bedrock attributes model spend to the calling role's tags (IAM principal cost allocation). Execution roles carry `project`, `stage` and `agent`. Activate them as IAM principal cost allocation tags (admin, console only, about 48h).                                                                                                                                                                                                                                                                                                                                                    |
+| **Report**       | `agentharness costs [--stage]`: month-to-date Cost Explorer spend, filtered to `project`, grouped by `stage` and `agent`, listing Bedrock separately from Runtime, Cognito and Logs. About $0.01 per run.                                                                                                                                                                                                                                                                                                                                                                                 |
+| **Limit (soft)** | `agent.json` gains `"monthlyBudgetUsd"` (default 5, kit maximum 50). Each agent gets an AWS Budget filtered to Bedrock and its `stage` and `agent` tags: email at 80% actual and 100% forecast. A Budget Action (`APPLY_IAM_POLICY`, `AUTOMATIC`, `ACTUAL` 100%) attaches one shared deny-`bedrock:InvokeModel*` managed policy to that agent's role. The role lives in the control stack, so the block survives nightly redeploys. It's soft because billing lags, so an agent can overshoot by up to about a day of traffic. Request-level and Harness-wide token caps bound each call. |
+| **Restrict**     | The permissions boundary allows creating Harnesses only for an **admin-maintained allowlist of exact names** (for example `agentharness_dev_helper`). Adding an agent is a deliberate admin change. This is enforced by IAM for CloudFormation _and_ direct API calls, with no Lambda and no race. The kit checks the same list at synth, so errors are friendly. (Needs verifying: CreateHarness supports resource-level permissions on the name.)                                                                                                                                       |
+
+**Admin changes** (made once, by you):
+
+1. Boundary and guardrails: narrow the budget denies to the account kill-switch budget, and deny `iam:DetachRolePolicy` on the agentharness deny policy for everyone but the Budgets action role, so deploys can't lift a block.
+2. Boundary: the Harness name allowlist.
+3. Billing: activate the `project`, `stage` and `agent` IAM principal tags.
+
+**Tests before calling it done:** a threshold crossing blocks only that agent; a redeploy while blocked stays blocked; nightly teardown keeps the budget and the block; the block resets at month rollover after the action is reset; a non-allowlisted name fails to deploy.
+
+**Not doing:** strict real-time dollar caps. They need admission control with atomic reservations, which is too much for this project.
+
+**Order:** observe and report first, then the control-stack split, then limit, then restrict.
+
+## 12. Central approval of agent spaces (open, under discussion)
+
+**Goal:** teams can't create agents, or the resources behind them, without central approval. A **space** is a team's approved area: owners, a budget, and a list of agents.
+
+**Effect on §11:** the principle still holds; ownership moves. The long-lived control layer (identity, roles, budgets) becomes **centrally owned and generated per space**. Teams own only the disposable compute. §11's boundary allowlist is replaced by the registry plus per-space deploy roles. Fold this into §11 before building it.
+
+### Proposed shape
+
+1. **Registry as code, approval as a PR.** A platform-owned folder, using the kit's own conventions:
+
+   ```
+   spaces/
+     support/space.json   { "owners": [...], "monthlyBudgetUsd": 50, "agents": ["triage", "faq"] }
+   ```
+
+   A team requests a space or an agent by opening a PR, and CODEOWNERS makes the platform team the required reviewers. The merge is the approval, and git history is the audit trail.
+
+2. **The platform deploys control per space.** It deploys what §11 calls the control stack: a Cognito client, one execution role per agent, budgets and Budget Actions. The kit gains a second entry point for this platform app, which reads `spaces/`.
+3. **Teams deploy only inside their space.** Each space gets a deploy role that can create Harnesses only under its own name prefix, and can only pass (`iam:PassRole` with `iam:PassedToService`) the execution roles made for that space. Teams create no IAM roles.
+4. **The registry is the agent limit.** "Centrally restrict the number of agents" stops being a separate feature, because the registry is the count. The kit checks `agents/` against the space at synth, so errors are friendly. IAM is the real enforcement.
+
+The team-side experience is unchanged: `agents/<name>/` plus `cdk deploy`.
+
+### Challenges
+
+- **Can IAM limit Harness creation by name?** Check whether `CreateHarness` supports resource-level permissions, `aws:RequestTag` or a name condition. If not, teams don't deploy at all, and central CI deploys from team repos. That still works, but it's heavier.
+- **CloudFormation's own permissions.** CDK deploys through the bootstrap CloudFormation execution role, which is usually close to admin. Limiting the team's own identity means little without a scoped execution role per space, either through a per-space bootstrap qualifier or `cdk deploy --role-arn`.
+- **Approve each agent or each space?** Approving each agent keeps per-agent cost tracking, because spend is attributed to each agent's execution role. The cost is one PR per new agent. Approving each space (budget plus a maximum number of agents) gives teams more freedom, but agents share a role and you lose the per-agent split.
+- **One account or one per space?** The enterprise answer is an account per space under AWS Organizations, with service control policies and account-level budgets: hard isolation, and cost separation for free. One shared account with spaces is enough for this project. Record the per-account setup as the path to scale.
+- **Lifecycle.** Remove a space in order: team agents first, then platform control. Keep budgets so past spend can still be reported. The nightly cleanup reads the registry to know which stages to tear down.
+- **Cognito.** Decide between one client per space (separate secrets, which can be revoked per space) and a shared client. The Harness's `allowedClients` then lists only that space's client.
+
+### Decisions to make
+
+| Decision                     | Leaning                                                             |
+| ---------------------------- | ------------------------------------------------------------------- |
+| Approve each agent or space  | Each agent: the PR is one line, and per-agent cost tracking is kept |
+| One account or one per space | One account now, account per space recorded as the path to scale    |
+| Who deploys team agents      | Teams, if IAM can scope `CreateHarness`; otherwise central CI       |
+| Cognito client               | One per space                                                       |
+
+**Next:** verify the `CreateHarness` IAM authorization (resource types and condition keys), and how to scope the CloudFormation execution role per space. Then rewrite §11 and §12 as one plan.
