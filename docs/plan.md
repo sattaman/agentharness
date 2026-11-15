@@ -45,7 +45,7 @@ git clone … && cd agentharness && pnpm install && pnpm build
 # edit examples/helper/agents/helper/{agent.json,prompt.md,knowledge/*.md}
 pnpm --dir examples/helper check               # validate conventions offline, with readable errors
 pnpm --dir examples/helper deploy -- -c stage=dev
-pnpm --dir examples/helper chat helper         # terminal chat, streams the answer + token usage
+pnpm chat helper                               # test client (tools/chat), with a token from the README steps
 pnpm --dir examples/helper destroy             # clean teardown (including the KB and S3)
 ```
 
@@ -73,7 +73,7 @@ Each milestone ends with something that runs.
 
 ## 4. Repo layout
 
-See D12. Each concept gets one file in `packages/agentharness/src/` (for example `load.ts`, `schema.ts`, `agents.ts`, `knowledge.ts`, `chat.ts`, `cli.ts`), and only `index.ts` and `cli.ts` are public.
+See D12. Each concept gets one file in `packages/agentharness/src/` (for example `load.ts`, `schema.ts`, `agents.ts`, `knowledge.ts`, `api.ts`, `cli.ts`), and only `index.ts` and `cli.ts` are public.
 
 - `aws-cdk-lib` and `constructs` are **peerDependencies** of `agentharness`.
 - Every stack takes a `stage` (default `dev`, validated as `[a-z][a-z0-9]{0,7}`). Stack names include it, so personal and CI stacks never collide. Stages are at most 8 characters and agent names at most 16, so the Harness name `agentharness_<stage>_<agent>` stays within AgentCore's 40-character limit.
@@ -144,7 +144,7 @@ The smoke test checks for facts, not exact wording. The golden fact is a made-up
 
 ## 7. Where we see a working deployment
 
-1. **Personal stage** (`stage=dev`) in your account, through `pnpm chat`. This is the development loop.
+1. **Personal stage** (`stage=dev`) in your account, through the test client `pnpm chat` (`tools/chat`). This is the development loop.
 2. **CI stage** (`stage=ci`). Every merge to main redeploys it and posts a **GitHub Actions job summary** with a real Q&A transcript and token cost. That's public, verifiable proof that it works, without exposing an endpoint.
 3. **README**: a short recorded demo (asciinema or GIF) plus a link to the latest green deploy run.
 4. **No public endpoint in the MVP.** An unauthenticated chat URL is a cost and abuse risk. Phase 2 can add a web UI behind Cognito with an invite-only user pool, plus per-user rate limits, if a live demo for reviewers is wanted.

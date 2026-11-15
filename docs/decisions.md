@@ -159,13 +159,15 @@ CDK, scripts and any future runtime code are all TypeScript, so there is one too
 - **Monorepo** (pnpm workspaces):
 
 ```
-packages/agentharness/   the one published package: CDK constructs + `agentharness` CLI
+packages/agentharness/   the one published package: CDK constructs, the front door, and the `agentharness` CLI (synth, sync)
 examples/helper/         exactly what a user's repo looks like
+tools/chat/              a terminal client of the API for testing; private, never published
 docs/
 ```
 
 - The example depends on `"agentharness": "workspace:*"`, so it can only use the published API.
 - **Users write no code.** Their repo holds `agents/<name>/`, `package.json` and a `cdk.json` containing `{ "app": "npx agentharness synth" }`. The exported construct is available for adding agents to an existing CDK app.
+- **The package provides the API, not clients.** Talking to an agent is a separate concern. The package exports the API's request and reply formats as `agentharness/contract`. Clients, including our own test client in `tools/chat`, use only the HTTP API. Getting a token is a manual step for maintainers (README, "Test an agent").
 - **Agent folder:** `agent.json` + `prompt.md` + `knowledge/`. JSON with no `$schema` line. Editors get the schema through `.vscode/settings.json` `json.schemas` (later through SchemaStore). The CLI validates against the same zod schema either way.
 - **Resource names:** stacks `agentharness-<stage>-auth` and `agentharness-<stage>-agents`; resources `agentharness-<stage>-<agent>-*`; AgentCore Harness `agentharness_<stage>_<agent>`. Tags: `project`, `stage`, `agent`.
 
@@ -193,7 +195,7 @@ docs/
 - **Stable credentials, short-lived tokens.** The client ID and secret stay the same across agent redeploys. Tokens are JWT access tokens valid for 1 hour. AgentCore accepts JWTs or SigV4, never static API keys, so a non-expiring token isn't possible, by design.
 - **Client-token flow.** The app client has a secret, the `client_credentials` OAuth flow and the `agentharness/invoke` scope, and `ALLOW_CLIENT_TOKEN_AUTH` as its _only_ auth flow, which cannot sign users in. `GetClientToken` (August 2026) issues tokens without a hosted domain.
 - **The authorizer config lives in one place.** Every Harness gets `Auth.jwtAuthorizer`: discovery URL, allowed client and required scope. Cognito access tokens have no `aud` claim, so it checks the client rather than the audience.
-- **Secret delivery.** The CLI reads the secret with the caller's IAM credentials (`DescribeUserPoolClient`) and exchanges it for a token. IAM protects _reading_ the secret. Anyone who holds it can mint tokens, because `GetClientToken` isn't IAM-authorized. So it never appears in stack outputs. When an external caller needs it, store it in Secrets Manager.
+- **Secret delivery.** A maintainer with IAM access reads a caller's secret (`DescribeUserPoolClient`) and hands the client ID and secret to that caller, which exchanges them for tokens itself (since 2026-11-15 a manual step, not a kit command). IAM protects _reading_ the secret. Anyone who holds it can mint tokens, because `GetClientToken` isn't IAM-authorized. So it never appears in stack outputs. When an external caller needs it, store it in Secrets Manager.
 - **Trust boundary (checked against the AWS Harness security docs, 2026-11-15).** A token gives full control of the agent's session:
   - Per request, a caller can override the model, system prompt, tools, `allowedTools`, skills and limits. `allowedTools: ["*"]` turns on the built-in shell, file and web tools, and sessions have public network access. There is no setting to turn overrides off.
   - A token can also open an interactive shell in the session, or run commands directly. Both run as root in the microVM, and `allowedTools` doesn't apply to them. For token callers, the authorizer is the only gate.

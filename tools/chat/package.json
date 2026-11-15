@@ -1,0 +1,13 @@
+{
+  "name": "agentharness-chat",
+  "private": true,
+  "description": "A terminal client for an agentharness API, for testing. Not published.",
+  "type": "module",
+  "scripts": {
+    "start": "node chat.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "agentharness": "workspace:*"
+  }
+}

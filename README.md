@@ -24,11 +24,12 @@ Needs Node 24, pnpm (`corepack enable`), and an AWS account prepared as in [docs
 pnpm install && pnpm build
 cd examples/helper
 pnpm run deploy            # deploy both stacks, then load knowledge/ into the knowledge base
-pnpm chat helper           # chat with the agent in your terminal
 pnpm destroy               # remove the agents (access and spend records stay)
 ```
 
-`pnpm deploy` is a pnpm built-in, hence `pnpm run deploy`. The default stage is `dev`. For another stage, run `pnpm exec cdk deploy --all -c stage=<name>`, then pass `--stage <name>` to `sync`, `chat` and `get-token`.
+`pnpm deploy` is a pnpm built-in, hence `pnpm run deploy`. The default stage is `dev`. For another stage, run `pnpm exec cdk deploy --all -c stage=<name>`, then `pnpm sync --stage <name>`.
+
+The kit provides the API; it has no chat client. To try an agent, see [Test an agent](#test-an-agent).
 
 ## Define an agent
 
@@ -64,12 +65,7 @@ The folder name is the agent's name: 1–16 lowercase letters or digits, startin
    ```
 
 3. Deploy. The team gets its own Cognito client, allowed to call only the agents that list it.
-4. Give the team a token, or the client ID and secret, through a secret store. A token lasts one hour:
-
-   ```bash
-   pnpm get-token --caller support
-   ```
-
+4. Give the team its client ID and secret through a secret store. Both are on its app client in Cognito; the ID is also the `<caller>ClientId` output of the `-auth` stack. The team swaps them for a one-hour access token whenever it needs one, with Cognito's `GetClientToken` (any AWS SDK, or `aws cognito-idp get-client-token`). That call needs no AWS credentials.
 5. The team calls the API. Its URL is the `ApiUrl` output of the `agentharness-<stage>-auth` stack.
 
    ```bash
@@ -189,6 +185,25 @@ AgentCore lets anyone who can call a Harness override its model, prompt and tool
 - Rate limiting is per stage, not per caller.
 - Nova 2 Lite runs through a global inference profile, so requests may be processed outside the UK.
 
+## Test an agent
+
+For maintainers with access to the AWS account. Get a token for the `maintainers` caller, then chat in the terminal:
+
+```bash
+STACK=agentharness-dev-auth CALLER=maintainers
+out() { aws cloudformation describe-stacks --stack-name $STACK --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }
+CLIENT_ID=$(out ${CALLER}ClientId)
+SECRET=$(aws cognito-idp describe-user-pool-client --user-pool-id "$(out UserPoolId)" --client-id "$CLIENT_ID" \
+  --query UserPoolClient.ClientSecret --output text)
+export AGENTHARNESS_API_URL=$(out ApiUrl)
+export AGENTHARNESS_TOKEN=$(aws cognito-idp get-client-token --client-id "$CLIENT_ID" --secret "$SECRET" \
+  --query ClientAuthenticationResult.AccessToken --output text)
+
+pnpm chat helper
+```
+
+`pnpm chat` runs [`tools/chat`](tools/chat), a small client that uses only the public API, the same way another team's app would. It isn't part of the published package.
+
 ## Design principles
 
 1. **Convention over configuration.** Three files per agent; infrastructure, IAM and monitoring are derived.
@@ -207,21 +222,23 @@ AgentCore lets anyone who can call a Harness override its model, prompt and tool
 | `packages/agentharness/` | The npm package: CDK constructs, the front-door Lambda and the CLI |
 | `examples/helper/`       | A complete example, laid out exactly like a user's own repo        |
 | `ops/cleanup/`           | Optional app that deletes dev agent stacks every night             |
+| `tools/chat/`            | A terminal client of the API, for testing (not published)          |
 | `docs/`                  | Decisions, plan, one-off AWS setup and IAM policy templates        |
 
 Inside `packages/agentharness/src/`:
 
-| File                                                        | Concept                                                                  |
-| ----------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `schema.ts`, `load.ts`                                      | The conventions: file schemas, model prices, loading and validation      |
-| `agent.ts`, `knowledge.ts`                                  | One Harness and its execution role; one knowledge base and gateway       |
-| `auth.ts`, `api.ts`                                         | Cognito callers and scopes; the front door (API Gateway, Lambda, ledger) |
-| `request.ts`, `handler.ts`                                  | Front-door rules (pure, unit-tested) and the streaming Lambda            |
-| `spend.ts`, `ledger.ts`                                     | Call cost and reservations (pure); the DynamoDB spend ledger             |
-| `reply.ts`                                                  | The streamed reply format, shared by the Lambda and the CLI              |
-| `stack.ts`, `app.ts`                                        | The two stacks per stage, and the CDK app with cdk-nag                   |
-| `iam.ts`, `names.ts`                                        | Roles with explained permissions; resource names                         |
-| `cli.ts`, `chat.ts`, `token.ts`, `sync.ts`, `deployment.ts` | The `agentharness` command line                                          |
+| File                                 | Concept                                                                  |
+| ------------------------------------ | ------------------------------------------------------------------------ |
+| `schema.ts`, `load.ts`               | The conventions: file schemas, model prices, loading and validation      |
+| `agent.ts`, `knowledge.ts`           | One Harness and its execution role; one knowledge base and gateway       |
+| `auth.ts`, `api.ts`                  | Cognito callers and scopes; the front door (API Gateway, Lambda, ledger) |
+| `request.ts`, `handler.ts`           | Front-door rules (pure, unit-tested) and the streaming Lambda            |
+| `spend.ts`, `ledger.ts`              | Call cost and reservations (pure); the DynamoDB spend ledger             |
+| `reply.ts`                           | The streamed reply format, shared by the Lambda and the CLI              |
+| `stack.ts`, `app.ts`                 | The two stacks per stage, and the CDK app with cdk-nag                   |
+| `iam.ts`, `names.ts`                 | Roles with explained permissions; resource names                         |
+| `cli.ts`, `sync.ts`, `deployment.ts` | The `agentharness` command line: `synth` and `sync`                      |
+| `contract.ts`                        | The API's request and reply formats, exported as `agentharness/contract` |
 
 ## Develop
 

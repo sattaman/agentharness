@@ -2,5 +2,6 @@ packages:
   - packages/*
   - examples/*
   - ops/*
+  - tools/*
 allowBuilds:
   esbuild: true

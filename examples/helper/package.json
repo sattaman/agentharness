@@ -7,9 +7,7 @@
     "diff": "cdk diff --all",
     "deploy": "cdk deploy --all && agentharness sync",
     "sync": "agentharness sync",
-    "destroy": "cdk destroy '*-agents'",
-    "get-token": "agentharness token",
-    "chat": "agentharness chat"
+    "destroy": "cdk destroy '*-agents'"
   },
   "devDependencies": {
     "agentharness": "workspace:*",

@@ -1,21 +1,6 @@
 import { CloudFormationClient, DescribeStacksCommand } from '@aws-sdk/client-cloudformation';
 import { outputKeys, stackNames } from './names.js';
 
-export interface Access {
-  readonly apiUrl: string;
-  readonly userPoolId: string;
-  readonly clientId: string;
-}
-
-export async function findAccess(stage: string, caller: string): Promise<Access> {
-  const outputs = await stackOutputs(stackNames.auth(stage));
-  return {
-    apiUrl: outputs.get(outputKeys.apiUrl),
-    userPoolId: outputs.get(outputKeys.userPoolId),
-    clientId: outputs.get(outputKeys.clientId(caller)),
-  };
-}
-
 export async function findHarnessArn(stage: string, agent: string): Promise<string> {
   const outputs = await stackOutputs(stackNames.agents(stage));
   return outputs.get(outputKeys.harnessArn(agent));
