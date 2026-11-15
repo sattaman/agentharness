@@ -1,6 +1,7 @@
-import { CfnHarness } from 'aws-cdk-lib/aws-bedrockagentcore';
+import { CfnHarness, type CfnHarnessProps } from 'aws-cdk-lib/aws-bedrockagentcore';
 import { Construct } from 'constructs';
-import { arn, serviceRole } from './iam.js';
+import { arn, serviceRole, type Permission } from './iam.js';
+import { Knowledge } from './knowledge.js';
 import type { AgentSpec } from './load.js';
 import { models } from './schema.js';
 
@@ -12,11 +13,16 @@ export interface AgentProps {
 
 export class Agent extends Construct {
   readonly harness: CfnHarness;
+  readonly knowledge: Knowledge | undefined;
 
   constructor(scope: Construct, id: string, { spec, stage, authorizer }: AgentProps) {
     super(scope, id);
     const harnessName = `agentharness_${stage}_${spec.name}`;
     const model = models[spec.config.model];
+    this.knowledge = spec.knowledge
+      ? new Knowledge(this, 'Knowledge', { name: `agentharness-${stage}-${spec.name}` })
+      : undefined;
+    const gatewayArn = this.knowledge?.gateway.attrGatewayArn;
 
     const role = serviceRole(this, 'ExecutionRole', 'bedrock-agentcore.amazonaws.com', [
       {
@@ -75,6 +81,7 @@ export class Agent extends Construct {
           ),
         ],
       },
+      ...(gatewayArn === undefined ? [] : [searchKnowledge(gatewayArn)]),
     ]);
 
     this.harness = new CfnHarness(this, 'Harness', {
@@ -88,7 +95,7 @@ export class Agent extends Construct {
         },
       },
       systemPrompt: [{ text: spec.prompt }],
-      allowedTools: [],
+      ...toolsFor(gatewayArn),
       memory: { disabled: {} },
       maxIterations: spec.config.maxIterations,
       timeoutSeconds: spec.config.timeoutSeconds,
@@ -96,3 +103,25 @@ export class Agent extends Construct {
     });
   }
 }
+
+const knowledgeTool = 'knowledge';
+
+function toolsFor(gatewayArn: string | undefined): Pick<CfnHarnessProps, 'tools' | 'allowedTools'> {
+  if (gatewayArn === undefined) return { tools: [], allowedTools: [] };
+  return {
+    tools: [
+      {
+        type: 'agentcore_gateway',
+        name: knowledgeTool,
+        config: { agentCoreGateway: { gatewayArn, outboundAuth: { awsIam: {} } } },
+      },
+    ],
+    allowedTools: [`@${knowledgeTool}`],
+  };
+}
+
+const searchKnowledge = (gatewayArn: string): Permission => ({
+  why: 'Search this agent’s knowledge through its own gateway.',
+  actions: ['bedrock-agentcore:InvokeGateway'],
+  resources: [gatewayArn],
+});

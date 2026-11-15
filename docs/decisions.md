@@ -76,7 +76,20 @@ CDK, scripts and any future runtime code are all TypeScript, so there is one too
 
 **Why:** No Lambda and no vector store to manage. IAM is used end to end, so there's no Cognito or API keys.
 **Superseded:** S3 Vectors + Titan v2 + a custom Lambda `search_knowledge` tool. A classic vector KB needs a Lambda target.
-**Note:** Deploying does not start ingestion, so a custom resource calls `StartIngestionJob`.
+**Ingestion (2026-11-15):** a kit command, `agentharness sync`, not part of the deploy. It mirrors `knowledge/` to S3 (deletes included), calls `StartIngestionJob`, waits, and fails naming any document that didn't ingest. `pnpm run deploy` runs `cdk deploy` and then `sync`. CI runs the same command on changes to `knowledge/`.
+
+- **Why not a custom resource:** it would add Lambdas (the kit has none), it starts ingestion without seeing it finish, so failures end up in CloudWatch rather than the deploy, and content would need an infrastructure deploy. Content changes need narrower permissions than deploys (S3 writes and starting ingestion), which fits central approval (plan §12).
+- **Not the connector's `SyncSchedule`:** it only runs daily, weekly or monthly, so it doesn't follow changes.
+
+**Scope:** one bucket, KB and Gateway per agent, in the disposable `-agents` stack. Agents can't read each other's knowledge: with IAM auth, a role that can invoke a Gateway reaches every target behind it. The nightly teardown exists to stop spend, so a fresh deploy starting with an empty KB is fine; `sync` fills it.
+
+**Verified on AWS (2026-11-15):**
+
+- The S3 connector requires `bucketOwnerAccountId`, even for a bucket in the same account.
+- The KB role needs only `s3:ListBucket` and `s3:GetObject`; managed embeddings need no `bedrock:InvokeModel`.
+- `allowedTools: ['@knowledge']` admits the Gateway's tools; the stream names the tool `knowledge___Retrieve`.
+- Timings: deploy about 100s, first `sync` about 2.5 minutes, rollback or teardown about 12 minutes (Bedrock deletes the data source slowly).
+- The bucket empties itself on delete (`autoDeleteObjects`, CDK's own small Lambda), so nightly teardown doesn't fail on a non-empty bucket. Data-source deletion protection is off, so `sync` deletions always apply; git review guards what is removed.
 
 ## D7 — CDK library: plain aws-cdk-lib
 

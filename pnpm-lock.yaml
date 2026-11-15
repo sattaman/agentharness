@@ -223,6 +223,9 @@ importers:
 
   packages/agentharness:
     dependencies:
+      '@aws-sdk/client-bedrock-agent':
+        specifier: 3.1168.0
+        version: 3.1168.0
       '@aws-sdk/client-bedrock-agentcore':
         specifier: 3.1168.0
         version: 3.1168.0
@@ -230,6 +233,9 @@ importers:
         specifier: 3.1168.0
         version: 3.1168.0
       '@aws-sdk/client-cognito-identity-provider':
+        specifier: 3.1168.0
+        version: 3.1168.0
+      '@aws-sdk/client-s3':
         specifier: 3.1168.0
         version: 3.1168.0
       '@smithy/core':
@@ -267,6 +273,14 @@ packages:
       - jsonschema
       - semver
 
+  '@aws-sdk/checksums@3.1002.5':
+    resolution: {integrity: sha512-OHlfkNzDFjYnwNPABhwAkDTUi0HPjfsKUHJDR0bSMORpCXNzRpInPCNCIT08xKDhjaPlcLJ+2Av+Sk7hHnuC8A==}
+    engines: {node: '>=20.0.0'}
+
+  '@aws-sdk/client-bedrock-agent@3.1168.0':
+    resolution: {integrity: sha512-HxNZrMERFjJPvgHLw4FXmymokq3yV8k3Qi/QQLUaIs+Oh9X5KlqOuLNGf3p4+WKOXOMBoaf5EF097gg4/WL6rA==}
+    engines: {node: '>=20.0.0'}
+
   '@aws-sdk/client-bedrock-agentcore@3.1168.0':
     resolution: {integrity: sha512-eBr2VeVpHsW1L5Lnxqzg1l2qz+cSBYsbK758ydUG3mg2IX6P6lQrMnK3zU/nD7JgaUas0d7nAuuHOOy5QX8+NQ==}
     engines: {node: '>=20.0.0'}
@@ -277,6 +291,10 @@ packages:
 
   '@aws-sdk/client-cognito-identity-provider@3.1168.0':
     resolution: {integrity: sha512-ZjIs9BolCNVfRviIaKF4NAqwTAvs0RVHFKULyxNA4+6xWqPgdp113rt1f1jrN06BEYYU39ozr06iWEiEzDqgLw==}
+    engines: {node: '>=20.0.0'}
+
+  '@aws-sdk/client-s3@3.1168.0':
+    resolution: {integrity: sha512-7NcVxqy7Vc6I8A3KOZFORGh+zfMCd4S5aje55tBNBfshddz+F1NZwxLXblt44TC6nw0Hgx5os3AM2d/P0McELQ==}
     engines: {node: '>=20.0.0'}
 
   '@aws-sdk/core@3.981.0':
@@ -313,6 +331,10 @@ packages:
 
   '@aws-sdk/credential-provider-web-identity@3.972.90':
     resolution: {integrity: sha512-duLeE3xlf0viHeH+1RM4z5duR3b32BCZTWVMu+MbxFPjQBxy7hmIGEqt5hekuFPRuXoyhMovjNl+PNNsb5oiGQ==}
+    engines: {node: '>=20.0.0'}
+
+  '@aws-sdk/middleware-sdk-s3@3.972.89':
+    resolution: {integrity: sha512-Lem2/ZT1eOicVATBukPRPm2S4JAmrTEkP3/dnJE9iTeyqIKqsJF2j04f5L0o+rrZIrwR13swiQMdzcE5jXRzNA==}
     engines: {node: '>=20.0.0'}
 
   '@aws-sdk/nested-clients@3.998.3':
@@ -1390,6 +1412,25 @@ snapshots:
 
   '@aws-cdk/cloud-assembly-schema@55.6.0': {}
 
+  '@aws-sdk/checksums@3.1002.5':
+    dependencies:
+      '@aws-sdk/core': 3.981.0
+      '@aws-sdk/types': 3.975.1
+      '@smithy/core': 3.40.0
+      '@smithy/types': 4.20.0
+      tslib: 2.9.1
+
+  '@aws-sdk/client-bedrock-agent@3.1168.0':
+    dependencies:
+      '@aws-sdk/core': 3.981.0
+      '@aws-sdk/credential-provider-node': 3.972.97
+      '@aws-sdk/types': 3.975.1
+      '@smithy/core': 3.40.0
+      '@smithy/fetch-http-handler': 5.8.1
+      '@smithy/node-http-handler': 4.14.2
+      '@smithy/types': 4.20.0
+      tslib: 2.9.1
+
   '@aws-sdk/client-bedrock-agentcore@3.1168.0':
     dependencies:
       '@aws-sdk/core': 3.981.0
@@ -1416,6 +1457,20 @@ snapshots:
     dependencies:
       '@aws-sdk/core': 3.981.0
       '@aws-sdk/credential-provider-node': 3.972.97
+      '@aws-sdk/types': 3.975.1
+      '@smithy/core': 3.40.0
+      '@smithy/fetch-http-handler': 5.8.1
+      '@smithy/node-http-handler': 4.14.2
+      '@smithy/types': 4.20.0
+      tslib: 2.9.1
+
+  '@aws-sdk/client-s3@3.1168.0':
+    dependencies:
+      '@aws-sdk/checksums': 3.1002.5
+      '@aws-sdk/core': 3.981.0
+      '@aws-sdk/credential-provider-node': 3.972.97
+      '@aws-sdk/middleware-sdk-s3': 3.972.89
+      '@aws-sdk/signature-v4-multi-region': 3.996.52
       '@aws-sdk/types': 3.975.1
       '@smithy/core': 3.40.0
       '@smithy/fetch-http-handler': 5.8.1
@@ -1513,6 +1568,15 @@ snapshots:
     dependencies:
       '@aws-sdk/core': 3.981.0
       '@aws-sdk/nested-clients': 3.998.3
+      '@aws-sdk/types': 3.975.1
+      '@smithy/core': 3.40.0
+      '@smithy/types': 4.20.0
+      tslib: 2.9.1
+
+  '@aws-sdk/middleware-sdk-s3@3.972.89':
+    dependencies:
+      '@aws-sdk/core': 3.981.0
+      '@aws-sdk/signature-v4-multi-region': 3.996.52
       '@aws-sdk/types': 3.975.1
       '@smithy/core': 3.40.0
       '@smithy/types': 4.20.0

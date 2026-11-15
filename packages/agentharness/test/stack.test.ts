@@ -9,11 +9,17 @@ const helper: AgentSpec = {
   name: 'helper',
   prompt: 'You are a test agent.',
   config: { model: 'nova-2-lite', maxTokens: 512, maxIterations: 3, timeoutSeconds: 60 },
+  knowledge: { dir: 'knowledge', files: ['office.md'] },
 };
+const plain: AgentSpec = { ...helper, name: 'plain', knowledge: undefined };
 
 const app = createApp();
 const authStack = new AuthStack(app, { stage: 'test' });
-const agentsStack = new AgentsStack(app, { stage: 'test', auth: authStack.auth, agents: [helper] });
+const agentsStack = new AgentsStack(app, {
+  stage: 'test',
+  auth: authStack.auth,
+  agents: [helper, plain],
+});
 const template = Template.fromStack(agentsStack);
 const authTemplate = Template.fromStack(authStack);
 
@@ -50,7 +56,7 @@ describe('AgentsStack', () => {
       HarnessName: 'agentharness_test_helper',
       Model: { BedrockModelConfig: { ModelId: 'global.amazon.nova-2-lite-v1:0', MaxTokens: 512 } },
       SystemPrompt: [{ Text: 'You are a test agent.' }],
-      AllowedTools: [],
+      AllowedTools: ['@knowledge'],
       Memory: { Disabled: {} },
       MaxIterations: 3,
       TimeoutSeconds: 60,
@@ -64,19 +70,98 @@ describe('AgentsStack', () => {
     });
   });
 
+  it('gives an agent without knowledge no tools', () => {
+    template.hasResourceProperties('AWS::BedrockAgentCore::Harness', {
+      HarnessName: 'agentharness_test_plain',
+      Tools: [],
+      AllowedTools: [],
+    });
+  });
+
+  it('creates a knowledge base, gateway and tool only for agents with knowledge', () => {
+    template.resourceCountIs('AWS::Bedrock::KnowledgeBase', 1);
+    template.resourceCountIs('AWS::BedrockAgentCore::Gateway', 1);
+    template.hasResourceProperties('AWS::Bedrock::KnowledgeBase', {
+      Name: 'agentharness-test-helper',
+      KnowledgeBaseConfiguration: {
+        Type: 'MANAGED',
+        ManagedKnowledgeBaseConfiguration: { EmbeddingModelType: 'MANAGED' },
+      },
+    });
+    template.hasResourceProperties('AWS::Bedrock::DataSource', {
+      DataSourceConfiguration: {
+        Type: 'MANAGED_KNOWLEDGE_BASE_CONNECTOR',
+        ManagedKnowledgeBaseConnectorConfiguration: {
+          ConnectorParameters: Match.objectLike({
+            type: 'S3',
+            connectionConfiguration: {
+              bucketName: Match.anyValue(),
+              bucketOwnerAccountId: { Ref: 'AWS::AccountId' },
+            },
+          }),
+        },
+      },
+    });
+    template.hasResourceProperties('AWS::BedrockAgentCore::Gateway', {
+      AuthorizerType: 'AWS_IAM',
+      ProtocolType: 'MCP',
+    });
+    template.hasResourceProperties('AWS::BedrockAgentCore::GatewayTarget', {
+      TargetConfiguration: {
+        Mcp: {
+          Connector: {
+            Source: { ConnectorId: 'bedrock-knowledge-bases' },
+            Configurations: [{ Name: 'Retrieve', ParameterValues: Match.anyValue() }],
+          },
+        },
+      },
+      CredentialProviderConfigurations: [{ CredentialProviderType: 'GATEWAY_IAM_ROLE' }],
+    });
+    template.hasResourceProperties('AWS::BedrockAgentCore::Harness', {
+      HarnessName: 'agentharness_test_helper',
+      Tools: [
+        {
+          Type: 'agentcore_gateway',
+          Name: 'knowledge',
+          Config: {
+            AgentCoreGateway: { GatewayArn: Match.anyValue(), OutboundAuth: { AwsIam: {} } },
+          },
+        },
+      ],
+    });
+  });
+
+  it('keeps the knowledge bucket private', () => {
+    template.hasResourceProperties('AWS::S3::Bucket', {
+      PublicAccessBlockConfiguration: {
+        BlockPublicAcls: true,
+        BlockPublicPolicy: true,
+        IgnorePublicAcls: true,
+        RestrictPublicBuckets: true,
+      },
+    });
+  });
+
+  it('lets the gateway search only its own knowledge base', () => {
+    const statements = statementsOf('bedrock-agentcore.amazonaws.com').filter(({ Action }) =>
+      [Action].flat().includes('bedrock:Retrieve'),
+    );
+    expect(statements).toHaveLength(1);
+    expect(statements[0]?.Resource).toEqual({
+      'Fn::GetAtt': [expect.stringMatching(/^helperKnowledgeKnowledgeBase/), 'KnowledgeBaseArn'],
+    });
+  });
+
   it('lets the harness invoke only the configured model', () => {
-    const bedrock = statementsOf('bedrock-agentcore.amazonaws.com').filter(({ Action }) =>
-      [Action].flat().some((action) => action.startsWith('bedrock:')),
+    const invoke = statementsOf('bedrock-agentcore.amazonaws.com').filter(({ Action }) =>
+      [Action].flat().some((action) => action.startsWith('bedrock:Invoke')),
     );
-    expect(bedrock).toHaveLength(1);
-    expect(bedrock[0]?.Action).toEqual([
-      'bedrock:InvokeModel',
-      'bedrock:InvokeModelWithResponseStream',
-    ]);
-    expect(bedrock[0]?.Resource).toHaveLength(2);
-    expect(bedrock[0]?.Resource).toContain(
-      'arn:aws:bedrock:*::foundation-model/amazon.nova-2-lite-v1:0',
-    );
+    expect(invoke).toHaveLength(2);
+    for (const { Action, Resource } of invoke) {
+      expect(Action).toEqual(['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream']);
+      expect(Resource).toHaveLength(2);
+      expect(Resource).toContain('arn:aws:bedrock:*::foundation-model/amazon.nova-2-lite-v1:0');
+    }
   });
 
   it('tags resources with stage and agent', () => {

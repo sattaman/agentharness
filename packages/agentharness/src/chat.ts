@@ -8,6 +8,7 @@ import { tokenProvider } from './token.js';
 
 export type Reply =
   | { readonly type: 'text'; readonly text: string }
+  | { readonly type: 'tool'; readonly name: string }
   | { readonly type: 'usage'; readonly inputTokens: number; readonly outputTokens: number };
 
 const bearer = 'smithy.api#httpBearerAuth';
@@ -40,6 +41,9 @@ export async function* ask(
     const error =
       event.runtimeClientError ?? event.validationException ?? event.internalServerException;
     if (error) throw new Error(error.message);
+
+    const tool = event.contentBlockStart?.start?.toolUse?.name;
+    if (tool !== undefined) yield { type: 'tool', name: tool };
 
     const chunk = event.contentBlockDelta?.delta?.text;
     if (chunk !== undefined) yield { type: 'text', text: chunk };
@@ -81,6 +85,9 @@ function show(reply: Reply): void {
   switch (reply.type) {
     case 'text':
       process.stdout.write(reply.text);
+      return;
+    case 'tool':
+      console.log(`\n[using ${reply.name}]`);
       return;
     case 'usage':
       console.log(`\n[${String(reply.inputTokens)} in / ${String(reply.outputTokens)} out tokens]`);

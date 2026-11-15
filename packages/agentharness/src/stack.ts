@@ -13,6 +13,9 @@ export const outputKeys = {
   userPoolId: 'UserPoolId',
   clientId: 'ClientId',
   harnessArn: (agent: string): string => `${agent}HarnessArn`,
+  knowledgeBucket: (agent: string): string => `${agent}KnowledgeBucket`,
+  knowledgeBaseId: (agent: string): string => `${agent}KnowledgeBaseId`,
+  dataSourceId: (agent: string): string => `${agent}DataSourceId`,
 };
 
 export interface StageProps extends StackProps {
@@ -50,6 +53,18 @@ export class AgentsStack extends Stack {
       const agent = new Agent(this, spec.name, { spec, stage, authorizer: auth.jwtAuthorizer });
       Tags.of(agent).add('agent', spec.name);
       new CfnOutput(this, outputKeys.harnessArn(spec.name), { value: agent.harness.attrArn });
+
+      const { knowledge } = agent;
+      if (knowledge === undefined) continue;
+      new CfnOutput(this, outputKeys.knowledgeBucket(spec.name), {
+        value: knowledge.bucket.bucketName,
+      });
+      new CfnOutput(this, outputKeys.knowledgeBaseId(spec.name), {
+        value: knowledge.knowledgeBase.attrKnowledgeBaseId,
+      });
+      new CfnOutput(this, outputKeys.dataSourceId(spec.name), {
+        value: knowledge.dataSource.attrDataSourceId,
+      });
     }
   }
 }

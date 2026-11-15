@@ -7,16 +7,44 @@ export interface Credentials {
 }
 
 export async function findCredentials(stage: string): Promise<Credentials> {
-  const output = await stackOutputs(stackNames.auth(stage));
-  return { userPoolId: output(outputKeys.userPoolId), clientId: output(outputKeys.clientId) };
+  const outputs = await stackOutputs(stackNames.auth(stage));
+  return {
+    userPoolId: outputs.get(outputKeys.userPoolId),
+    clientId: outputs.get(outputKeys.clientId),
+  };
 }
 
 export async function findHarnessArn(stage: string, agent: string): Promise<string> {
-  const output = await stackOutputs(stackNames.agents(stage));
-  return output(outputKeys.harnessArn(agent));
+  const outputs = await stackOutputs(stackNames.agents(stage));
+  return outputs.get(outputKeys.harnessArn(agent));
 }
 
-async function stackOutputs(name: string): Promise<(key: string) => string> {
+export interface KnowledgeTarget {
+  readonly bucket: string;
+  readonly knowledgeBaseId: string;
+  readonly dataSourceId: string;
+}
+
+export async function findKnowledge(
+  stage: string,
+  agent: string,
+): Promise<KnowledgeTarget | undefined> {
+  const outputs = await stackOutputs(stackNames.agents(stage));
+  const bucket = outputs.find(outputKeys.knowledgeBucket(agent));
+  if (bucket === undefined) return undefined;
+  return {
+    bucket,
+    knowledgeBaseId: outputs.get(outputKeys.knowledgeBaseId(agent)),
+    dataSourceId: outputs.get(outputKeys.dataSourceId(agent)),
+  };
+}
+
+interface Outputs {
+  find(key: string): string | undefined;
+  get(key: string): string;
+}
+
+async function stackOutputs(name: string): Promise<Outputs> {
   const { Stacks } = await new CloudFormationClient().send(
     new DescribeStacksCommand({ StackName: name }),
   );
@@ -24,9 +52,12 @@ async function stackOutputs(name: string): Promise<(key: string) => string> {
     Stacks?.[0]?.Outputs?.map(({ OutputKey, OutputValue }) => [OutputKey, OutputValue]),
   );
 
-  return (key) => {
-    const value = outputs.get(key);
-    if (value === undefined) throw new Error(`${name} has no output ${key}. Is it deployed?`);
-    return value;
+  return {
+    find: (key) => outputs.get(key),
+    get: (key) => {
+      const value = outputs.get(key);
+      if (value === undefined) throw new Error(`${name} has no output ${key}. Is it deployed?`);
+      return value;
+    },
   };
 }

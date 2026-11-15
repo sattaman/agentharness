@@ -1,4 +1,4 @@
-import { Aws, Validations } from 'aws-cdk-lib';
+import { Aws, Stack, Validations } from 'aws-cdk-lib';
 import {
   PolicyDocument,
   PolicyStatement,
@@ -7,6 +7,7 @@ import {
   type PolicyStatementProps,
 } from 'aws-cdk-lib/aws-iam';
 import type { Construct } from 'constructs';
+import { z } from 'zod';
 
 export interface Permission extends PolicyStatementProps {
   readonly why: string;
@@ -38,7 +39,7 @@ export function serviceRole(
       resources
         .filter((resource) => resource.includes('*'))
         .map((resource) => ({
-          id: `AwsSolutions::AwsSolutions-IAM5[Resource::${asFinding(resource)}]`,
+          id: `AwsSolutions::AwsSolutions-IAM5[Resource::${asFinding(Stack.of(role).resolve(resource))}]`,
           reason: why,
         })),
     ),
@@ -46,5 +47,17 @@ export function serviceRole(
   return role;
 }
 
-const asFinding = (resource: string): string =>
-  resource.replaceAll(Aws.REGION, '<AWS::Region>').replaceAll(Aws.ACCOUNT_ID, '<AWS::AccountId>');
+const intrinsic = z.union([
+  z.string(),
+  z.strictObject({ Ref: z.string() }),
+  z.strictObject({ 'Fn::GetAtt': z.tuple([z.string(), z.string()]) }),
+  z.strictObject({ 'Fn::Join': z.tuple([z.literal(''), z.array(z.unknown())]) }),
+]);
+
+function asFinding(resolved: unknown): string {
+  const value = intrinsic.parse(resolved);
+  if (typeof value === 'string') return value;
+  if ('Ref' in value) return `<${value.Ref}>`;
+  if ('Fn::GetAtt' in value) return `<${value['Fn::GetAtt'].join('.')}>`;
+  return value['Fn::Join'][1].map(asFinding).join('');
+}

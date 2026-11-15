@@ -37,10 +37,11 @@ Needs an AWS account set up as described in [docs/setup.md](docs/setup.md).
 ```bash
 pnpm build
 cd examples/helper
-pnpm deploy              # agentharness-dev-auth (credentials, long-lived) + agentharness-dev-agents
+pnpm run deploy          # agentharness-dev-auth (credentials, long-lived) + agentharness-dev-agents, then sync
+pnpm sync                # upload changed knowledge/ files and ingest them
 pnpm chat helper         # streams answers, authenticated with a one-hour OAuth token
 pnpm get-token           # print a token to call the agent yourself
 pnpm destroy             # removes the agents; credentials stay
 ```
 
-Add `-- -c stage=<name>` to any command for another stage.
+`pnpm deploy` is a pnpm built-in, hence `pnpm run deploy`. For another stage, run `pnpm exec cdk deploy --all -c stage=<name>` and then `pnpm sync --stage <name>`. `chat` and `get-token` also take `--stage <name>`.
