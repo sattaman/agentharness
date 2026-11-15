@@ -63,8 +63,15 @@ describe('AgentsStack', () => {
       SystemPrompt: [{ Text: 'You are a test agent.' }],
       AllowedTools: ['@knowledge'],
       Memory: { Disabled: {} },
+      Truncation: { Strategy: 'sliding_window', Config: { SlidingWindow: { MessagesCount: 20 } } },
       MaxIterations: 3,
+      MaxTokens: 512,
       TimeoutSeconds: 60,
+      Environment: {
+        AgentCoreRuntimeEnvironment: {
+          LifecycleConfiguration: { IdleRuntimeSessionTimeout: 300, MaxLifetime: 3600 },
+        },
+      },
       AuthorizerConfiguration: {
         CustomJWTAuthorizer: {
           DiscoveryUrl: Match.anyValue(),

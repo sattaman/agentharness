@@ -9,9 +9,11 @@ import { tokenProvider } from './token.js';
 export type Reply =
   | { readonly type: 'text'; readonly text: string }
   | { readonly type: 'tool'; readonly name: string }
+  | { readonly type: 'stopped'; readonly reason: string }
   | { readonly type: 'usage'; readonly inputTokens: number; readonly outputTokens: number };
 
 const bearer = 'smithy.api#httpBearerAuth';
+const normalStops = new Set<string>(['end_turn', 'tool_use', 'tool_result']);
 
 export function harnessClient(tokens: TokenIdentityProvider): BedrockAgentCoreClient {
   return new BedrockAgentCoreClient({
@@ -47,6 +49,9 @@ export async function* ask(
 
     const chunk = event.contentBlockDelta?.delta?.text;
     if (chunk !== undefined) yield { type: 'text', text: chunk };
+
+    const reason = event.messageStop?.stopReason;
+    if (reason !== undefined && !normalStops.has(reason)) yield { type: 'stopped', reason };
 
     const usage = event.metadata?.usage;
     if (usage) {
@@ -88,6 +93,9 @@ function show(reply: Reply): void {
       return;
     case 'tool':
       console.log(`\n[using ${reply.name}]`);
+      return;
+    case 'stopped':
+      console.log(`\n[stopped: ${reply.reason}]`);
       return;
     case 'usage':
       console.log(`\n[${String(reply.inputTokens)} in / ${String(reply.outputTokens)} out tokens]`);

@@ -82,7 +82,6 @@ export class Agent extends Construct {
         actions: [
           'bedrock-agentcore:GetWorkloadAccessToken',
           'bedrock-agentcore:GetWorkloadAccessTokenForJWT',
-          'bedrock-agentcore:GetWorkloadAccessTokenForUserId',
         ],
         resources: [
           arn('bedrock-agentcore', 'workload-identity-directory/default'),
@@ -108,8 +107,15 @@ export class Agent extends Construct {
       systemPrompt: [{ text: spec.prompt }],
       ...toolsFor(gatewayArn),
       memory: { disabled: {} },
+      truncation: { strategy: 'sliding_window', config: { slidingWindow: { messagesCount: 20 } } },
       maxIterations: spec.config.maxIterations,
+      maxTokens: spec.config.maxTokens,
       timeoutSeconds: spec.config.timeoutSeconds,
+      environment: {
+        agentCoreRuntimeEnvironment: {
+          lifecycleConfiguration: { idleRuntimeSessionTimeout: 300, maxLifetime: 3600 },
+        },
+      },
       authorizerConfiguration: { customJwtAuthorizer: authorizer },
     });
   }

@@ -46,6 +46,7 @@ CDK, scripts and any future runtime code are all TypeScript, so there is one too
 
 **Why Harness:** It turns the convention idea into config only. There's no Harness charge (you pay for the underlying compute, tokens and logs). It went GA on 2026-06-17.
 **Trade-off:** AG-UI isn't documented for Harness, so phase 2 may need an adapter or a Runtime-hosted UI agent.
+**Versions:** every update creates an immutable Harness version, and the `DEFAULT` endpoint follows the latest. We don't use named endpoints. Stages are separate Harnesses, deleted nightly, so rollback is a git revert and a redeploy. Named endpoints pay off once a single long-lived production Harness exists.
 
 ## D5 — Model: Amazon Nova 2 Lite
 
@@ -104,6 +105,9 @@ CDK, scripts and any future runtime code are all TypeScript, so there is one too
   - Set `model` and `systemPrompt`.
   - List `allowedTools` explicitly. Omitting it grants shell and file tools.
   - Disable memory for v1.
+  - Set `truncation` to a sliding window (the last 20 messages). The service default summarises old turns, which costs extra model calls and can change.
+  - Set the top-level `maxTokens`, which is the budget for a whole invocation. The model's `maxTokens` limits only a single model call.
+  - Keep an idle session warm for at most 300 s (the default is 900 s, billed for memory) and end it after 3600 s. Callers can't override these.
   - These are defaults, not limits: callers can override them per request (D15). What an agent can do in AWS is limited by its execution role.
   - Never forward caller-supplied overrides.
 - Run `cdk bootstrap` with scoped `--cloudformation-execution-policies` (not AdministratorAccess) and `--termination-protection`.
@@ -188,8 +192,10 @@ docs/
 - **Secret delivery.** The CLI reads the secret with the caller's IAM credentials (`DescribeUserPoolClient`) and exchanges it for a token. IAM protects _reading_ the secret. Anyone who holds it can mint tokens, because `GetClientToken` isn't IAM-authorized. So it never appears in stack outputs. When an external caller needs it, store it in Secrets Manager.
 - **Trust boundary (checked against the AWS Harness security docs, 2026-11-15).** A token gives full control of the agent's session:
   - Per request, a caller can override the model, system prompt, tools, `allowedTools`, skills and limits. `allowedTools: ["*"]` turns on the built-in shell, file and web tools, and sessions have public network access. There is no setting to turn overrides off.
+  - A token can also open an interactive shell in the session, or run commands directly. Both run as root in the microVM, and `allowedTools` doesn't apply to them. For token callers, the authorizer is the only gate.
+  - Through `model.additionalParams`, a caller can send the model request, signed with the execution role's session credentials, to an endpoint they choose. So the role's credentials can leak.
   - One client can call every agent in its stage.
-  - What _is_ enforced is the execution role. It can call the configured inference profile only (direct foundation-model calls require `bedrock:InferenceProfileArn`), can reach its own gateway only, and is denied `sts:AssumeRole`. A caller can point the model at another provider, but then our role isn't the one paying.
+  - What _is_ enforced is the execution role, which is why it is kept tight. It can call the configured inference profile only (direct foundation-model calls require `bedrock:InferenceProfileArn`), can reach its own gateway only, and is denied `sts:AssumeRole`. Leaked credentials can do no more than that.
   - So tokens are for trusted maintainers. Before anyone untrusted gets access, a validating layer must sit in front of the Harness (plan §8).
 - **Cost.** About $0.002–0.003 per token request. The CLI reuses a token until a minute before it expires.
 - **Later:** one client per consumer (separate revocation and attribution) and per-agent scopes.

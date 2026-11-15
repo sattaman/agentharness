@@ -195,7 +195,11 @@ The smoke test checks for facts, not exact wording. The golden fact is a made-up
   - `RemovalPolicy.DESTROY` + `autoDeleteObjects` only for non-prod stages.
 - Logs: retention set (for example 30 days), so nothing is kept forever.
 - Inbound auth: a JWT from the stage's Cognito client (D15). Tokens are for trusted maintainers only.
-- **Before any untrusted caller:** put a validating layer in front of the Harness. It builds each request itself and never forwards overrides. It throttles callers and tracks who owns which session. It is the only holder of the client secret, so callers can't go around it. Not built in the MVP.
+- **Before any untrusted caller:** put a validating layer in front of the Harness. Not built in the MVP.
+  - It builds each request itself and never forwards overrides.
+  - It throttles callers and tracks who owns which session.
+  - It calls the Harness with SigV4, and the Harness has no JWT authorizer. Its role has `InvokeHarness` but not `InvokeAgentRuntimeCommand` or `InvokeAgentRuntimeCommandShell`, so nobody can open a shell. That IAM gate doesn't exist for bearer tokens.
+  - In the same package: a `beforeToolCall` hook as a tool allowlist (callers can't override hooks), and VPC mode to limit network egress.
 - The `-auth` stacks are termination-protected. The guardrails and the boundary deny `DeleteStack` and `UpdateTerminationProtection` on them, as for `CDKToolkit`. A deploy that changes the stack can still damage it, so full central ownership waits for the dedicated account (M5).
 
 ### Cost safety
@@ -213,6 +217,12 @@ The smoke test checks for facts, not exact wording. The golden fact is a made-up
   - The system prompt tells the agent that retrieved text is reference data, not instructions.
   - Iteration and token caps limit the damage from runaway loops.
   - The adversarial smoke test (§5) checks this.
+- **Harness features considered and left off:**
+  - Bedrock Guardrails: callers can override them.
+  - Gateway Cedar policies: there's one read-only tool, so nothing to gate.
+  - Skills, custom containers, environment variables, mounted filesystems and memory: each one widens what an agent can do.
+  - Export: it leaves out gateway tools.
+  - An `afterInvocation` hook for usage events: deferred until reports need more than Cost Explorer and the stream's usage events.
 - By default no tools beyond Retrieve, so injected text can't trigger side effects. A token holder can enable more tools (D15), which is one more reason tokens are for trusted maintainers only. The remaining risks are disclosing KB content (which is public demo content anyway), going off-task, and wasting tokens.
 - Never put secrets in `knowledge/`; gitleaks scans it too.
 
@@ -310,3 +320,6 @@ The smoke test checks for facts, not exact wording. The golden fact is a made-up
 - **§11 is smaller:** observe, report, stop. Per-agent Budget Actions are deferred, because Budgets document no IAM principal tag filter and their enforcement lags. Application inference profiles are the recorded upgrade path.
 - **§12 is deferred,** with its IAM claims corrected: `CreateHarness` can't be restricted by name, `PassRole` doesn't cap the agent count, and qualifiers don't isolate.
 - **New tests:** an override probe, plus IAM simulation of model and gateway isolation (§5).
+- **Also from the docs:**
+  - A token can open a root shell, and `additionalParams` can leak the role's credentials (D15). The untrusted-caller design now uses SigV4 with no shell permissions.
+  - Each Harness now sets the invocation `maxTokens` budget, a sliding-window `truncation`, and shorter session lifetimes (D8).
