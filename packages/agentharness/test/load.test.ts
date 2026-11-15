@@ -12,7 +12,13 @@ describe('loadAgents', () => {
       {
         name: 'helper',
         prompt: 'You are a test agent.',
-        config: { model: 'nova-2-lite', maxTokens: 1024, maxIterations: 5, timeoutSeconds: 120 },
+        config: {
+          model: 'nova-2-lite',
+          maxTokens: 1024,
+          maxIterations: 5,
+          timeoutSeconds: 120,
+          callers: [],
+        },
         knowledge: {
           dir: join(fixtures, 'valid', 'helper', 'knowledge'),
           files: [join('guides', 'setup.md'), 'office.md'],

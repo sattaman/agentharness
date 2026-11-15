@@ -8,18 +8,25 @@ import { AgentsStack, AuthStack } from '../src/stack.js';
 const helper: AgentSpec = {
   name: 'helper',
   prompt: 'You are a test agent.',
-  config: { model: 'nova-2-lite', maxTokens: 512, maxIterations: 3, timeoutSeconds: 60 },
+  config: {
+    model: 'nova-2-lite',
+    maxTokens: 512,
+    maxIterations: 3,
+    timeoutSeconds: 60,
+    callers: ['support'],
+  },
   knowledge: { dir: 'knowledge', files: ['office.md'] },
 };
-const plain: AgentSpec = { ...helper, name: 'plain', knowledge: undefined };
+const plain: AgentSpec = {
+  ...helper,
+  name: 'plain',
+  knowledge: undefined,
+  config: { ...helper.config, callers: [] },
+};
 
 const app = createApp();
-const authStack = new AuthStack(app, { stage: 'test' });
-const agentsStack = new AgentsStack(app, {
-  stage: 'test',
-  auth: authStack.auth,
-  agents: [helper, plain],
-});
+const authStack = new AuthStack(app, { stage: 'test', agents: [helper, plain] });
+const agentsStack = new AgentsStack(app, { stage: 'test', agents: [helper, plain] });
 const template = Template.fromStack(agentsStack);
 const authTemplate = Template.fromStack(authStack);
 
@@ -42,8 +49,12 @@ const roleSchema = z.object({
   }),
 });
 
-function statementsOf(service: string) {
-  const roles = template.findResources('AWS::IAM::Role', {
+const clientSchema = z.object({
+  Properties: z.object({ ClientName: z.string(), AllowedOAuthScopes: z.unknown() }),
+});
+
+function statementsOf(service: string, from = template) {
+  const roles = from.findResources('AWS::IAM::Role', {
     Properties: {
       AssumeRolePolicyDocument: {
         Statement: [Match.objectLike({ Principal: { Service: service } })],
@@ -72,14 +83,20 @@ describe('AgentsStack', () => {
           LifecycleConfiguration: { IdleRuntimeSessionTimeout: 300, MaxLifetime: 3600 },
         },
       },
-      AuthorizerConfiguration: {
-        CustomJWTAuthorizer: {
-          DiscoveryUrl: Match.anyValue(),
-          AllowedClients: [Match.anyValue()],
-          AllowedScopes: ['agentharness/invoke'],
-        },
-      },
+      AuthorizerConfiguration: Match.absent(),
     });
+  });
+
+  it('accepts only IAM-signed calls, so tokens work only through the front door', () => {
+    const harnesses = Object.values(template.findResources('AWS::BedrockAgentCore::Harness'));
+    expect(harnesses).toHaveLength(2);
+    for (const harness of harnesses) {
+      expect(harness['Properties']).not.toHaveProperty('AuthorizerConfiguration');
+    }
+  });
+
+  it('does not depend on the auth stack', () => {
+    expect(JSON.stringify(template.toJSON())).not.toContain('Fn::ImportValue');
   });
 
   it('gives an agent without knowledge no tools', () => {
@@ -201,20 +218,72 @@ describe('AgentsStack', () => {
 });
 
 describe('AuthStack', () => {
-  it('issues machine tokens only, scoped to invoking agents', () => {
-    authTemplate.hasResourceProperties('AWS::Cognito::UserPoolClient', {
-      ExplicitAuthFlows: ['ALLOW_CLIENT_TOKEN_AUTH'],
-      GenerateSecret: true,
-      AllowedOAuthFlows: ['client_credentials'],
-      AllowedOAuthScopes: [Match.anyValue()],
-    });
+  it('defines one scope per agent', () => {
     authTemplate.hasResourceProperties('AWS::Cognito::UserPoolResourceServer', {
       Identifier: 'agentharness',
-      Scopes: [{ ScopeName: 'invoke', ScopeDescription: 'Call agents' }],
+      Scopes: [
+        { ScopeName: 'helper', ScopeDescription: 'Call helper' },
+        { ScopeName: 'plain', ScopeDescription: 'Call plain' },
+      ],
     });
+  });
+
+  it('gives maintainers every agent and each caller only the agents that name it', () => {
+    const clients = authTemplate.findResources('AWS::Cognito::UserPoolClient');
+    const scopesOf = (name: string): string =>
+      JSON.stringify(
+        Object.values(clients)
+          .map((client) => clientSchema.parse(client).Properties)
+          .find(({ ClientName }) => ClientName === name)?.AllowedOAuthScopes,
+      );
+    expect(Object.keys(clients)).toHaveLength(2);
+    expect(scopesOf('maintainers')).toMatch(/helper.*plain/);
+    expect(scopesOf('support')).toContain('helper');
+    expect(scopesOf('support')).not.toContain('plain');
+  });
+
+  it('issues machine tokens only', () => {
+    const clients = Object.values(authTemplate.findResources('AWS::Cognito::UserPoolClient'));
+    for (const client of clients) {
+      expect(client['Properties']).toMatchObject({
+        ExplicitAuthFlows: ['ALLOW_CLIENT_TOKEN_AUTH'],
+        GenerateSecret: true,
+        AllowedOAuthFlows: ['client_credentials'],
+      });
+    }
     authTemplate.hasResourceProperties('AWS::Cognito::UserPool', {
       AdminCreateUserConfig: { AllowAdminCreateUserOnly: true },
     });
+  });
+
+  it('puts a Cognito-authorized, validated, streaming front door before the agents', () => {
+    authTemplate.hasResourceProperties('AWS::ApiGateway::Method', {
+      HttpMethod: 'POST',
+      AuthorizationType: 'COGNITO_USER_POOLS',
+      AuthorizationScopes: ['agentharness/helper', 'agentharness/plain'],
+      RequestValidatorId: Match.anyValue(),
+      Integration: Match.objectLike({ Type: 'AWS_PROXY', ResponseTransferMode: 'STREAM' }),
+    });
+    authTemplate.hasResourceProperties('AWS::ApiGateway::Model', {
+      Schema: Match.objectLike({ additionalProperties: false, required: Match.anyValue() }),
+    });
+    authTemplate.hasResourceProperties('AWS::ApiGateway::Stage', {
+      MethodSettings: [Match.objectLike({ ThrottlingRateLimit: 5, ThrottlingBurstLimit: 10 })],
+    });
+  });
+
+  it('lets the front door invoke this stage’s agents and nothing more', () => {
+    const actions = statementsOf('lambda.amazonaws.com', authTemplate).flatMap(({ Action }) =>
+      [Action].flat(),
+    );
+    expect(actions.sort()).toEqual([
+      'bedrock-agentcore:InvokeAgentRuntime',
+      'bedrock-agentcore:InvokeHarness',
+      'cloudformation:DescribeStacks',
+      'logs:CreateLogStream',
+      'logs:PutLogEvents',
+    ]);
+    expect(JSON.stringify(authTemplate.toJSON())).toContain('harness/agentharness_test_*');
   });
 
   it('is protected from accidental deletion', () => {

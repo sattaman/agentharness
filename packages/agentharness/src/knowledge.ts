@@ -3,7 +3,7 @@ import { CfnDataSource, CfnKnowledgeBase } from 'aws-cdk-lib/aws-bedrock';
 import { CfnGateway, CfnGatewayTarget } from 'aws-cdk-lib/aws-bedrockagentcore';
 import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
 import { Construct } from 'constructs';
-import { serviceRole } from './iam.js';
+import { fromThisAccount, serviceRole } from './iam.js';
 
 export interface KnowledgeProps {
   readonly name: string;
@@ -30,18 +30,23 @@ export class Knowledge extends Construct {
       reason: 'The bucket mirrors files reviewed in git; agentharness sync is its only writer.',
     });
 
-    const knowledgeBaseRole = serviceRole(this, 'KnowledgeBaseRole', 'bedrock.amazonaws.com', [
-      {
-        why: 'Read the documents to ingest.',
-        actions: ['s3:ListBucket'],
-        resources: [this.bucket.bucketArn],
-      },
-      {
-        why: 'Read any document in the bucket; sync decides what is there.',
-        actions: ['s3:GetObject'],
-        resources: [this.bucket.arnForObjects('*')],
-      },
-    ]);
+    const knowledgeBaseRole = serviceRole(
+      this,
+      'KnowledgeBaseRole',
+      fromThisAccount('bedrock.amazonaws.com'),
+      [
+        {
+          why: 'Read the documents to ingest.',
+          actions: ['s3:ListBucket'],
+          resources: [this.bucket.bucketArn],
+        },
+        {
+          why: 'Read any document in the bucket; sync decides what is there.',
+          actions: ['s3:GetObject'],
+          resources: [this.bucket.arnForObjects('*')],
+        },
+      ],
+    );
 
     this.knowledgeBase = new CfnKnowledgeBase(this, 'KnowledgeBase', {
       name,
@@ -71,13 +76,18 @@ export class Knowledge extends Construct {
       },
     });
 
-    const gatewayRole = serviceRole(this, 'GatewayRole', 'bedrock-agentcore.amazonaws.com', [
-      {
-        why: 'Search this agent’s knowledge base, and no other.',
-        actions: ['bedrock:GetKnowledgeBase', 'bedrock:Retrieve'],
-        resources: [this.knowledgeBase.attrKnowledgeBaseArn],
-      },
-    ]);
+    const gatewayRole = serviceRole(
+      this,
+      'GatewayRole',
+      fromThisAccount('bedrock-agentcore.amazonaws.com'),
+      [
+        {
+          why: 'Search this agent’s knowledge base, and no other.',
+          actions: ['bedrock:GetKnowledgeBase', 'bedrock:Retrieve'],
+          resources: [this.knowledgeBase.attrKnowledgeBaseArn],
+        },
+      ],
+    );
 
     this.gateway = new CfnGateway(this, 'Gateway', {
       name,

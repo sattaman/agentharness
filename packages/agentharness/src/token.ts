@@ -3,13 +3,10 @@ import {
   DescribeUserPoolClientCommand,
   GetClientTokenCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
-import type { TokenIdentity, TokenIdentityProvider } from '@smithy/types';
-import { findCredentials } from './deployment.js';
+import type { TokenIdentity } from '@smithy/types';
+import type { Access } from './deployment.js';
 
-const refreshMargin = 60_000;
-
-export async function issueToken(stage: string): Promise<TokenIdentity> {
-  const { userPoolId, clientId } = await findCredentials(stage);
+export async function issueToken({ userPoolId, clientId }: Access): Promise<TokenIdentity> {
   const cognito = new CognitoIdentityProviderClient();
 
   const { UserPoolClient } = await cognito.send(
@@ -27,11 +24,13 @@ export async function issueToken(stage: string): Promise<TokenIdentity> {
   return { token: result.AccessToken, expiration: new Date(Date.now() + result.ExpiresIn * 1000) };
 }
 
-export function tokenProvider(stage: string): TokenIdentityProvider {
+const refreshMargin = 60_000;
+
+export function tokenProvider(access: Access): () => Promise<string> {
   let current: TokenIdentity | undefined;
   return async () => {
     const expiresSoon = (current?.expiration?.getTime() ?? 0) - Date.now() < refreshMargin;
-    if (current === undefined || expiresSoon) current = await issueToken(stage);
-    return current;
+    if (current === undefined || expiresSoon) current = await issueToken(access);
+    return current.token;
   };
 }

@@ -194,12 +194,15 @@ The smoke test checks for facts, not exact wording. The golden fact is a made-up
   - SSE (S3-managed keys for the MVP; KMS optional).
   - `RemovalPolicy.DESTROY` + `autoDeleteObjects` only for non-prod stages.
 - Logs: retention set (for example 30 days), so nothing is kept forever.
-- Inbound auth: a JWT from the stage's Cognito client (D15). Tokens are for trusted maintainers only.
-- **Before any untrusted caller:** put a validating layer in front of the Harness. Not built in the MVP.
-  - It builds each request itself and never forwards overrides.
-  - It throttles callers and tracks who owns which session.
-  - It calls the Harness with SigV4, and the Harness has no JWT authorizer. Its role has `InvokeHarness` but not `InvokeAgentRuntimeCommand` or `InvokeAgentRuntimeCommandShell`, so nobody can open a shell. That IAM gate doesn't exist for bearer tokens.
-  - In the same package: a `beforeToolCall` hook as a tool allowlist (callers can't override hooks), and VPC mode to limit network egress.
+- **Inbound: one front door per stage (D17).**
+  - Callers use a token for their own Cognito client. The front door builds every request, so no overrides reach a Harness.
+  - Harnesses accept SigV4 only, and the front door's role can't open shells.
+  - Access is declared per agent (`callers` in `agent.json`) and reviewed in the same PR.
+- **Later hardening:**
+  - a per-caller quota in the front door;
+  - WAF;
+  - a `beforeToolCall` hook as a tool allowlist (callers can't override hooks);
+  - VPC mode to limit network egress.
 - The `-auth` stacks are termination-protected. The guardrails and the boundary deny `DeleteStack` and `UpdateTerminationProtection` on them, as for `CDKToolkit`. A deploy that changes the stack can still damage it, so full central ownership waits for the dedicated account (M5).
 
 ### Cost safety
@@ -323,3 +326,4 @@ The smoke test checks for facts, not exact wording. The golden fact is a made-up
 - **Also from the docs:**
   - A token can open a root shell, and `additionalParams` can leak the role's credentials (D15). The untrusted-caller design now uses SigV4 with no shell permissions.
   - Each Harness now sets the invocation `maxTokens` budget, a sliding-window `truncation`, and shorter session lifetimes (D8).
+- **A front door is now part of the MVP (D17).** It makes access safe to share with other teams. Verified live: no token gives 401, overrides give 400, an agent not granted gives 403, and a token sent straight to a Harness gives 403.

@@ -1,88 +1,57 @@
-import { BedrockAgentCoreClient, InvokeHarnessCommand } from '@aws-sdk/client-bedrock-agentcore';
-import { HttpBearerAuthSigner } from '@smithy/core';
-import type { TokenIdentityProvider } from '@smithy/types';
 import { randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline/promises';
-import { findHarnessArn } from './deployment.js';
+import { findAccess } from './deployment.js';
+import { maintainers } from './names.js';
+import { replySchema, type Reply } from './reply.js';
+import type { ChatRequest } from './request.js';
 import { tokenProvider } from './token.js';
 
-export type Reply =
-  | { readonly type: 'text'; readonly text: string }
-  | { readonly type: 'tool'; readonly name: string }
-  | { readonly type: 'stopped'; readonly reason: string }
-  | { readonly type: 'usage'; readonly inputTokens: number; readonly outputTokens: number };
-
-const bearer = 'smithy.api#httpBearerAuth';
-const normalStops = new Set<string>(['end_turn', 'tool_use', 'tool_result']);
-
-export function harnessClient(tokens: TokenIdentityProvider): BedrockAgentCoreClient {
-  return new BedrockAgentCoreClient({
-    httpAuthSchemeProvider: () => [{ schemeId: bearer }],
-    httpAuthSchemes: [
-      { schemeId: bearer, identityProvider: () => tokens, signer: new HttpBearerAuthSigner() },
-    ],
-  });
-}
-
 export async function* ask(
-  client: BedrockAgentCoreClient,
-  harnessArn: string,
-  sessionId: string,
-  text: string,
+  apiUrl: string,
+  token: string,
+  request: ChatRequest,
 ): AsyncGenerator<Reply> {
-  const { stream } = await client.send(
-    new InvokeHarnessCommand({
-      harnessArn,
-      runtimeSessionId: sessionId,
-      messages: [{ role: 'user', content: [{ text }] }],
-    }),
-  );
-  if (stream === undefined) throw new Error('The harness returned no response stream');
-
-  for await (const event of stream) {
-    const error =
-      event.runtimeClientError ?? event.validationException ?? event.internalServerException;
-    if (error) throw new Error(error.message);
-
-    const tool = event.contentBlockStart?.start?.toolUse?.name;
-    if (tool !== undefined) yield { type: 'tool', name: tool };
-
-    const chunk = event.contentBlockDelta?.delta?.text;
-    if (chunk !== undefined) yield { type: 'text', text: chunk };
-
-    const reason = event.messageStop?.stopReason;
-    if (reason !== undefined && !normalStops.has(reason)) yield { type: 'stopped', reason };
-
-    const usage = event.metadata?.usage;
-    if (usage) {
-      yield {
-        type: 'usage',
-        inputTokens: usage.inputTokens ?? 0,
-        outputTokens: usage.outputTokens ?? 0,
-      };
-    }
+  const response = await fetch(new URL('chat', apiUrl), {
+    method: 'POST',
+    headers: { authorization: token, 'content-type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  if (!response.ok || response.body === null) {
+    throw new Error(`The front door said ${String(response.status)}: ${await response.text()}`);
   }
+  for await (const line of lines(response.body)) yield replySchema.parse(JSON.parse(line));
 }
 
-export async function chat(agent: string, stage: string): Promise<void> {
-  const harnessArn = await findHarnessArn(stage, agent);
-  const client = harnessClient(tokenProvider(stage));
+async function* lines(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+  let buffer = '';
+  for await (const chunk of body.pipeThrough(new TextDecoderStream())) {
+    const parts = (buffer + chunk).split('\n');
+    buffer = parts.pop() ?? '';
+    yield* parts.filter((part) => part !== '');
+  }
+  if (buffer !== '') yield buffer;
+}
+
+export async function chat(agent: string, stage: string, caller = maintainers): Promise<void> {
+  const access = await findAccess(stage, caller);
+  const token = tokenProvider(access);
   const sessionId = randomUUID();
   const lines = createInterface({ input: process.stdin });
   const prompt = (): boolean => process.stdout.write('\n> ');
 
   try {
-    console.log(`Chatting with ${agent} (${stage}). Empty line to quit.`);
+    console.log(`Chatting with ${agent} (${stage}) as ${caller}. Empty line to quit.`);
     prompt();
     for await (const line of lines) {
-      const question = line.trim();
-      if (question === '') break;
-      for await (const reply of ask(client, harnessArn, sessionId, question)) show(reply);
+      const message = line.trim();
+      if (message === '') break;
+      for await (const reply of ask(access.apiUrl, await token(), { agent, message, sessionId })) {
+        show(reply);
+      }
       prompt();
     }
   } finally {
     lines.close();
-    client.destroy();
   }
 }
 
@@ -99,6 +68,9 @@ function show(reply: Reply): void {
       return;
     case 'usage':
       console.log(`\n[${String(reply.inputTokens)} in / ${String(reply.outputTokens)} out tokens]`);
+      return;
+    case 'error':
+      console.log(`\n[error: ${reply.message}]`);
       return;
   }
 }

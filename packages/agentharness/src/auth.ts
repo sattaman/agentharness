@@ -1,5 +1,4 @@
 import { CfnResource, Duration, Validations } from 'aws-cdk-lib';
-import type { CfnHarness } from 'aws-cdk-lib/aws-bedrockagentcore';
 import {
   OAuthScope,
   ResourceServerScope,
@@ -7,15 +6,20 @@ import {
   type UserPoolClient,
 } from 'aws-cdk-lib/aws-cognito';
 import { Construct } from 'constructs';
+import type { AgentSpec } from './load.js';
+import { maintainers } from './names.js';
+import { resourceServer, scopeFor } from './request.js';
 
-const resourceServerId = 'agentharness';
-const invokeScope = 'invoke';
+export interface AuthProps {
+  readonly agents: readonly AgentSpec[];
+}
 
 export class Auth extends Construct {
   readonly userPool: UserPool;
-  readonly client: UserPoolClient;
+  readonly clients: ReadonlyMap<string, { client: UserPoolClient; agents: readonly string[] }>;
+  readonly scopes: readonly string[];
 
-  constructor(scope: Construct, id: string) {
+  constructor(scope: Construct, id: string, { agents }: AuthProps) {
     super(scope, id);
 
     this.userPool = new UserPool(this, 'Pool', {
@@ -29,30 +33,42 @@ export class Auth extends Construct {
       },
     });
 
-    const invoke = new ResourceServerScope({
-      scopeName: invokeScope,
-      scopeDescription: 'Call agents',
+    const agentScopes = new Map(
+      agents.map(({ name }) => [
+        name,
+        new ResourceServerScope({ scopeName: name, scopeDescription: `Call ${name}` }),
+      ]),
+    );
+    const server = this.userPool.addResourceServer('ResourceServer', {
+      identifier: resourceServer,
+      scopes: [...agentScopes.values()],
     });
-    const resourceServer = this.userPool.addResourceServer('ResourceServer', {
-      identifier: resourceServerId,
-      scopes: [invoke],
-    });
+    this.scopes = agents.map(({ name }) => scopeFor(name));
 
-    this.client = this.userPool.addClient('Client', {
-      generateSecret: true,
-      oAuth: {
-        flows: { clientCredentials: true },
-        scopes: [OAuthScope.resourceServer(resourceServer, invoke)],
-      },
-      accessTokenValidity: Duration.hours(1),
-    });
-    allowClientTokenAuthOnly(this.client);
+    const clients = new Map<string, { client: UserPoolClient; agents: readonly string[] }>();
+    for (const [caller, agentNames] of callersOf(agents)) {
+      const client = this.userPool.addClient(caller, {
+        userPoolClientName: caller,
+        generateSecret: true,
+        oAuth: {
+          flows: { clientCredentials: true },
+          scopes: agentNames.flatMap((name) => {
+            const agentScope = agentScopes.get(name);
+            return agentScope ? [OAuthScope.resourceServer(server, agentScope)] : [];
+          }),
+        },
+        accessTokenValidity: Duration.hours(1),
+      });
+      allowClientTokenAuthOnly(client);
+      clients.set(caller, { client, agents: agentNames });
+    }
+    this.clients = clients;
 
     Validations.of(this.userPool).acknowledge(
       {
         id: 'AwsSolutions::AwsSolutions-COG2',
         reason:
-          'The only client uses ALLOW_CLIENT_TOKEN_AUTH, which cannot sign users in, so there is no sign-in for MFA to protect.',
+          'Every client uses ALLOW_CLIENT_TOKEN_AUTH, which cannot sign users in, so there is no sign-in for MFA to protect.',
       },
       {
         id: 'AwsSolutions::AwsSolutions-COG3',
@@ -65,14 +81,18 @@ export class Auth extends Construct {
       },
     );
   }
+}
 
-  get jwtAuthorizer(): CfnHarness.CustomJWTAuthorizerConfigurationProperty {
-    return {
-      discoveryUrl: `${this.userPool.userPoolProviderUrl}/.well-known/openid-configuration`,
-      allowedClients: [this.client.userPoolClientId],
-      allowedScopes: [`${resourceServerId}/${invokeScope}`],
-    };
+function callersOf(agents: readonly AgentSpec[]): Map<string, string[]> {
+  const callers = new Map([[maintainers, agents.map(({ name }) => name)]]);
+  for (const { name, config } of agents) {
+    for (const caller of config.callers) {
+      const allowed = callers.get(caller) ?? [];
+      if (!allowed.includes(name)) allowed.push(name);
+      callers.set(caller, allowed);
+    }
   }
+  return callers;
 }
 
 function allowClientTokenAuthOnly(client: UserPoolClient): void {

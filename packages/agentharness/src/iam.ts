@@ -17,16 +17,19 @@ export interface Permission extends PolicyStatementProps {
 export const arn = (service: string, resource: string): string =>
   `arn:aws:${service}:${Aws.REGION}:${Aws.ACCOUNT_ID}:${resource}`;
 
+export const fromThisAccount = (service: string): ServicePrincipal =>
+  new ServicePrincipal(service, {
+    conditions: { StringEquals: { 'aws:SourceAccount': Aws.ACCOUNT_ID } },
+  });
+
 export function serviceRole(
   scope: Construct,
   id: string,
-  service: string,
+  assumedBy: ServicePrincipal,
   permissions: readonly Permission[],
 ): Role {
   const role = new Role(scope, id, {
-    assumedBy: new ServicePrincipal(service, {
-      conditions: { StringEquals: { 'aws:SourceAccount': Aws.ACCOUNT_ID } },
-    }),
+    assumedBy,
     inlinePolicies: {
       permissions: new PolicyDocument({
         statements: permissions.map((permission) => new PolicyStatement(permission)),

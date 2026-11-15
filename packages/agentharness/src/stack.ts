@@ -1,56 +1,53 @@
 import { CfnOutput, Stack, Tags, type StackProps } from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
 import { Agent } from './agent.js';
+import { Api } from './api.js';
 import { Auth } from './auth.js';
 import type { AgentSpec } from './load.js';
-
-export const stackNames = {
-  auth: (stage: string): string => `agentharness-${stage}-auth`,
-  agents: (stage: string): string => `agentharness-${stage}-agents`,
-};
-
-export const outputKeys = {
-  userPoolId: 'UserPoolId',
-  clientId: 'ClientId',
-  harnessArn: (agent: string): string => `${agent}HarnessArn`,
-  knowledgeBucket: (agent: string): string => `${agent}KnowledgeBucket`,
-  knowledgeBaseId: (agent: string): string => `${agent}KnowledgeBaseId`,
-  dataSourceId: (agent: string): string => `${agent}DataSourceId`,
-};
+import { outputKeys, stackNames } from './names.js';
 
 export interface StageProps extends StackProps {
   readonly stage: string;
+  readonly agents: readonly AgentSpec[];
 }
 
 export class AuthStack extends Stack {
   readonly auth: Auth;
+  readonly api: Api;
 
-  constructor(scope: Construct, { stage, ...props }: StageProps) {
+  constructor(scope: Construct, { stage, agents, ...props }: StageProps) {
     super(scope, stackNames.auth(stage), {
-      description: 'Long-lived credentials for calling agentharness agents.',
+      description: 'Long-lived access to agentharness agents: callers and the front door.',
       terminationProtection: true,
       ...props,
     });
     Tags.of(this).add('stage', stage);
 
-    this.auth = new Auth(this, 'Auth');
+    this.auth = new Auth(this, 'Auth', { agents });
+    this.api = new Api(this, 'Api', {
+      stage,
+      userPool: this.auth.userPool,
+      scopes: this.auth.scopes,
+      grants: [...this.auth.clients.values()].map(
+        ({ client, agents: allowed }) => [client.userPoolClientId, allowed] as const,
+      ),
+    });
+
     new CfnOutput(this, outputKeys.userPoolId, { value: this.auth.userPool.userPoolId });
-    new CfnOutput(this, outputKeys.clientId, { value: this.auth.client.userPoolClientId });
+    new CfnOutput(this, outputKeys.apiUrl, { value: this.api.url });
+    for (const [caller, { client }] of this.auth.clients) {
+      new CfnOutput(this, outputKeys.clientId(caller), { value: client.userPoolClientId });
+    }
   }
 }
 
-export interface AgentsStackProps extends StageProps {
-  readonly agents: readonly AgentSpec[];
-  readonly auth: Auth;
-}
-
 export class AgentsStack extends Stack {
-  constructor(scope: Construct, { stage, agents, auth, ...props }: AgentsStackProps) {
+  constructor(scope: Construct, { stage, agents, ...props }: StageProps) {
     super(scope, stackNames.agents(stage), props);
     Tags.of(this).add('stage', stage);
 
     for (const spec of agents) {
-      const agent = new Agent(this, spec.name, { spec, stage, authorizer: auth.jwtAuthorizer });
+      const agent = new Agent(this, spec.name, { spec, stage });
       Tags.of(agent).add('agent', spec.name);
       new CfnOutput(this, outputKeys.harnessArn(spec.name), { value: agent.harness.attrArn });
 

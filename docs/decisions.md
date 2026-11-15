@@ -187,6 +187,8 @@ docs/
 
 ## D15 — Calling an agent: machine-to-machine OAuth tokens
 
+**Superseded in part by D17 (2026-11-15):** tokens now authorize the front door, not the Harness, and Harnesses accept SigV4 only. The token flow, secret delivery and trust-boundary findings below still hold.
+
 - **Two stacks per stage.** `agentharness-<stage>-auth` holds a Cognito user pool with one app client. It's long-lived and has termination protection. `agentharness-<stage>-agents` holds the agents. It comes and goes (deleted nightly in dev) and references the auth stack with strong cross-stack references, so the auth stack can't be changed or deleted underneath it.
 - **Stable credentials, short-lived tokens.** The client ID and secret stay the same across agent redeploys. Tokens are JWT access tokens valid for 1 hour. AgentCore accepts JWTs or SigV4, never static API keys, so a non-expiring token isn't possible, by design.
 - **Client-token flow.** The app client has a secret, the `client_credentials` OAuth flow and the `agentharness/invoke` scope, and `ALLOW_CLIENT_TOKEN_AUTH` as its _only_ auth flow, which cannot sign users in. `GetClientToken` (August 2026) issues tokens without a hosted domain.
@@ -210,3 +212,66 @@ docs/
 - The schedule's role can delete only `agentharness-<stage>-agents` stacks, not its own stack (checked with `iam simulate-principal-policy`). CloudFormation performs the deletion with the stack's own role, which is why the schedule needs nothing more.
 - A successful schedule run means deletion was _requested_. The runbook checks that the stack reached `DELETE_COMPLETE`.
 - **Runtime logs.** The Harness creates its log group outside the stack, at creation time, so the stack can neither pre-create nor delete it. An account-level CloudWatch Logs retention policy (November 2026) on the prefix `/aws/bedrock-agentcore/runtimes/harness_agentharness_` keeps them for 30 days with no Lambda. CloudFormation can't create that policy type yet, so it's a one-off command in `setup.md`.
+
+## D17 — One front door for every caller
+
+**Problem:** a token accepted by a Harness gives full control of the session: per-request overrides of model, prompt and tools, and a root shell (D15, verified live). AWS offers no setting to stop this. Its answer is to validate requests in your own layer.
+
+**Decision:** callers never reach a Harness. They call one front door per stage, which builds every request itself.
+
+```
+caller ──token──▶ API Gateway ──▶ Lambda ──SigV4──▶ Harness (IAM only)
+                  (Cognito,        (validates,
+                   scopes)          streams)
+```
+
+- **Harnesses accept SigV4 only:** no JWT authorizer. A token sent straight to a Harness is refused.
+- **API Gateway** (Regional REST) checks three things before the Lambda runs:
+  - the Cognito token;
+  - the token has a scope for at least one agent;
+  - the body matches the request schema (the same zod schema as the Lambda, converted to JSON Schema).
+    It also throttles the stage to 5 requests a second, burst 10.
+- **The Lambda** (`handler.ts`, with its logic in `request.ts`):
+  - accepts exactly `{ agent, message, sessionId }`;
+  - requires the exact scope `agentharness/<agent>` in the token, and that the caller's _current_ grants still include that agent;
+  - derives the session from the caller, agent and session ID, so callers can't share or hijack sessions;
+  - calls `InvokeHarness` with only the message, and streams replies back as NDJSON;
+  - logs the caller, agent, outcome and tokens used, never the message.
+- **The Lambda's role** can invoke `harness/agentharness_<stage>_*` and read the agents stack's outputs, and nothing else. It has no command or shell permissions, so nobody can open a shell.
+- **Access is declared with the agent:** `"callers": ["support"]` in `agent.json`.
+  - Each caller gets its own Cognito client and secret, scoped to the agents that name it. `maintainers` can call every agent.
+  - Revoke by removing the caller and redeploying. The Lambda holds the current grants, so a removed grant stops working at once, even with an unexpired token.
+- **It lives in the long-lived `-auth` stack.** The Lambda finds Harnesses through the agents stack's outputs, so the two stacks don't reference each other, and the URL survives the nightly teardown.
+- **The Lambda ships pre-bundled** in the npm package (`dist/handler`), built with esbuild at package build time, so users need no bundler.
+
+**Why this shape:**
+
+- Harness limits become real limits, because no overrides reach the Harness.
+- "Never forward overrides" (D8) is now enforced, not just a guideline.
+- Each consumer has its own credentials, revocation and usage.
+- Streaming works end to end: API Gateway REST APIs stream Lambda responses for up to 15 minutes (November 2025).
+
+**Not chosen:**
+
+- **Apigee or another external gateway:** it would need AWS signing, which means long-lived keys or cross-cloud federation. One can still sit in front of this front door.
+- **API Gateway calling AgentCore directly:** mapping templates, no streaming, no metering.
+- **An AgentCore Runtime agent as the front door:** a bearer token could open a shell inside it, where the Harness-invoking credentials live.
+- **A Lambda function URL:** JWT checks would move into code, and unauthenticated requests would still invoke, and bill, the function.
+
+**Verified live (2026-11-15):**
+
+| Test                                  | Result                                             |
+| ------------------------------------- | -------------------------------------------------- |
+| No token                              | 401                                                |
+| An extra field such as `allowedTools` | 400                                                |
+| An agent the caller isn't granted     | 403                                                |
+| A token sent straight to the Harness  | 403, "use SigV4"                                   |
+| A prompt asking for the shell         | Refused by the model, with no shell tool available |
+| `maintainers` and `demo` callers      | Answers stream back with retrieval                 |
+
+**Still open:**
+
+- **Prompt injection** and disclosure of an agent's knowledge to its allowed callers. Grant agents only to callers who may see all of their knowledge.
+- **Throttling is per stage.** A per-caller quota would go in the Lambda, as an atomic counter.
+- **No API Gateway or WAF logs** (cdk-nag acknowledged). The Lambda logs every request that reaches it.
+- **Maintainers with IAM access** can still invoke a Harness directly with SigV4, bypassing metering. That is the trusted path.

@@ -1,5 +1,6 @@
 {
   "model": "nova-2-lite",
   "maxTokens": 1024,
-  "maxIterations": 5
+  "maxIterations": 5,
+  "callers": ["demo"]
 }
