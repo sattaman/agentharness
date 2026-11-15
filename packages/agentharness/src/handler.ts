@@ -1,13 +1,17 @@
-import { BedrockAgentCoreClient, InvokeHarnessCommand } from '@aws-sdk/client-bedrock-agentcore';
+import {
+  BedrockAgentCoreClient,
+  InvokeHarnessCommand,
+  type InvokeHarnessCommandInput,
+} from '@aws-sdk/client-bedrock-agentcore';
 import { randomUUID } from 'node:crypto';
 import type { Writable } from 'node:stream';
 import { z } from 'zod';
 import { findHarnessArn } from './deployment.js';
 import { reserve, settle } from './ledger.js';
 import { repliesFrom, type Reply } from './reply.js';
-import { chatRequestSchema, invocation, mayCall, type Caller, type Grants } from './request.js';
+import type { Grants } from './request.js';
 import { agentConfigSchema } from './schema.js';
-import { addUsage, costMicros, ledgerKey, noUsage, reservationMicros } from './spend.js';
+import { serve, type FrontDoor, type Writer } from './serve.js';
 
 interface ResponseMetadata {
   readonly statusCode: number;
@@ -49,110 +53,38 @@ const eventSchema = z.object({
   }),
 });
 
+const door: Omit<FrontDoor, 'open'> = {
+  grants,
+  limits,
+  findHarness,
+  invoke,
+  reserve: (key, micros, budgetMicros, ledgerId) =>
+    reserve(env.LEDGER, key, micros, budgetMicros, ledgerId),
+  settle: (key, deltaMicros, ledgerId) => settle(env.LEDGER, key, deltaMicros, ledgerId),
+  now: () => new Date(),
+  newId: randomUUID,
+  error: (error) => {
+    console.error(error);
+  },
+};
+
 export const handler = awslambda.streamifyResponse(async (raw, responseStream) => {
   const { body, requestContext } = eventSchema.parse(raw);
-  const { requestId } = requestContext;
   const { client_id: clientId, scope } = requestContext.authorizer.claims;
-  const caller: Caller = { clientId, scopes: scope.split(' ') };
-  const grant = grants.get(clientId);
-  const ledgerId = randomUUID();
-  const summary = {
-    requestId,
-    ledgerId,
-    clientId,
-    caller: grant?.caller,
-    agent: '',
-    outcome: 'ok',
-  };
-
-  const reject = async (statusCode: number, message: string): Promise<void> => {
-    const out = awslambda.HttpResponseStream.from(responseStream, {
-      statusCode,
-      headers: { 'content-type': 'application/json' },
-    });
-    await write(out, JSON.stringify({ message }));
-    await finish(out);
-    console.log(JSON.stringify({ ...summary, outcome: `rejected ${String(statusCode)}` }));
-  };
-
-  if (grant === undefined) return reject(403, 'Unknown caller');
-  const request = chatRequestSchema.safeParse(parseJson(body));
-  if (!request.success) return reject(400, 'Send {"agent", "message", "sessionId"}');
-  const { agent } = request.data;
-  summary.agent = agent;
-  if (!mayCall(caller, agent, grants)) return reject(403, 'Not allowed to call this agent');
-  const agentLimits = limits[agent];
-  const harnessArn = await lookup(agent);
-  if (agentLimits === undefined || harnessArn === undefined) {
-    return reject(404, 'No such agent is deployed');
-  }
-
-  const reserved = reservationMicros(agentLimits);
-  const key = ledgerKey(grant.caller, new Date());
-  let admitted: boolean;
-  try {
-    admitted =
-      reserved <= grant.budgetMicros &&
-      (await reserve(env.LEDGER, key, reserved, grant.budgetMicros, ledgerId));
-  } catch (error) {
-    console.error(error);
-    return reject(503, 'The budget check is unavailable. Try again later.');
-  }
-  if (!admitted) return reject(429, 'This caller has used its monthly budget');
-
-  const out = awslambda.HttpResponseStream.from(responseStream, {
-    statusCode: 200,
-    headers: { 'content-type': 'application/x-ndjson' },
-  });
-  let usage = noUsage;
-  let metered = false;
-  let complete = false;
-  let delivering = true;
-  try {
-    const { stream } = await agentcore.send(
-      new InvokeHarnessCommand(invocation(harnessArn, caller, request.data)),
-    );
-    if (stream === undefined) throw new Error('The harness returned no response stream');
-    for await (const reply of repliesFrom(stream)) {
-      if (reply.type === 'usage') {
-        usage = addUsage(usage, reply);
-        metered = true;
-      }
-      if (delivering) delivering = await deliver(out, reply);
-    }
-    complete = true;
-  } catch (error) {
-    summary.outcome = 'failed';
-    console.error(error);
-    if (delivering) await deliver(out, { type: 'error', message: 'The agent failed. Try again.' });
-  }
-
-  const settled = complete && metered;
-  const charged = settled ? costMicros(agentLimits.model, usage) : reserved;
-  let accounting = settled ? 'settled' : 'reservation kept';
-  try {
-    await settle(env.LEDGER, key, charged - reserved, ledgerId);
-  } catch (error) {
-    console.error(error);
-    accounting = 'settle failed; reservation kept';
-  }
-  await finish(out).catch((error: unknown) => {
-    console.error(error);
-  });
-  console.log(
-    JSON.stringify({
-      ...summary,
-      model: agentLimits.model,
-      ...usage,
-      costUsd: charged / 1_000_000,
-      reservedUsd: reserved / 1_000_000,
-      overReservation: charged > reserved,
-      accounting,
-    }),
+  const summary = await serve(
+    { requestId: requestContext.requestId, clientId, scope, body },
+    { ...door, open: (statusCode, contentType) => writer(responseStream, statusCode, contentType) },
   );
+  console.log(JSON.stringify(summary));
 });
 
-async function lookup(agent: string): Promise<string | undefined> {
+async function* invoke(input: InvokeHarnessCommandInput): AsyncGenerator<Reply> {
+  const { stream } = await agentcore.send(new InvokeHarnessCommand(input));
+  if (stream === undefined) throw new Error('The harness returned no response stream');
+  yield* repliesFrom(stream);
+}
+
+async function findHarness(agent: string): Promise<string | undefined> {
   const cached = harnesses.get(agent);
   if (cached !== undefined && Date.now() - cached.at < cacheMs) return cached.arn;
   try {
@@ -165,44 +97,43 @@ async function lookup(agent: string): Promise<string | undefined> {
   }
 }
 
-function parseJson(body: string | null): unknown {
-  try {
-    return JSON.parse(body ?? '');
-  } catch {
-    return undefined;
-  }
-}
-
-async function deliver(stream: Writable, reply: Reply): Promise<boolean> {
-  try {
-    await write(stream, `${JSON.stringify(reply)}\n`);
-    return true;
-  } catch (error) {
-    console.error(error);
-    return false;
-  }
+function writer(responseStream: Writable, statusCode: number, contentType: string): Writer {
+  const stream = awslambda.HttpResponseStream.from(responseStream, {
+    statusCode,
+    headers: { 'content-type': contentType },
+  });
+  return {
+    write: async (text) => {
+      try {
+        await write(stream, text);
+        return true;
+      } catch (error) {
+        console.error(error);
+        return false;
+      }
+    },
+    end: async () => {
+      if (stream.destroyed) return;
+      await new Promise<void>((resolve) => stream.end(resolve));
+    },
+  };
 }
 
 async function write(stream: Writable, text: string): Promise<void> {
   if (stream.destroyed) throw new Error('The caller has disconnected');
   if (stream.write(text)) return;
   await new Promise<void>((resolve, reject) => {
-    const settle = (error?: Error): void => {
-      stream.off('drain', onDrain).off('close', onClose).off('error', settle);
+    const done = (error?: Error): void => {
+      stream.off('drain', onDrain).off('close', onClose).off('error', done);
       if (error) reject(error);
       else resolve();
     };
     const onDrain = (): void => {
-      settle();
+      done();
     };
     const onClose = (): void => {
-      settle(new Error('The caller has disconnected'));
+      done(new Error('The caller has disconnected'));
     };
-    stream.once('drain', onDrain).once('close', onClose).once('error', settle);
+    stream.once('drain', onDrain).once('close', onClose).once('error', done);
   });
-}
-
-async function finish(stream: Writable): Promise<void> {
-  if (stream.destroyed) return;
-  await new Promise<void>((resolve) => stream.end(resolve));
 }
