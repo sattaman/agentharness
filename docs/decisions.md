@@ -100,11 +100,12 @@ CDK, scripts and any future runtime code are all TypeScript, so there is one too
 
 - No long-lived keys. Use `aws login` locally, and IAM roles everywhere else.
 - Least-privilege roles (see research §IAM).
-- Lock down Harness:
-  - Pin `model` and `systemPrompt`.
+- Give each Harness safe defaults:
+  - Set `model` and `systemPrompt`.
   - List `allowedTools` explicitly. Omitting it grants shell and file tools.
   - Disable memory for v1.
-  - Never pass caller-supplied overrides through.
+  - These are defaults, not limits: callers can override them per request (D15). What an agent can do in AWS is limited by its execution role.
+  - Never forward caller-supplied overrides.
 - Run `cdk bootstrap` with scoped `--cloudformation-execution-policies` (not AdministratorAccess) and `--termination-protection`.
 - Run cdk-nag 3.0.2 at synth. Findings fail the build.
 
@@ -184,8 +185,12 @@ docs/
 - **Stable credentials, short-lived tokens.** The client ID and secret stay the same across agent redeploys. Tokens are JWT access tokens valid for 1 hour. AgentCore accepts JWTs or SigV4, never static API keys, so a non-expiring token isn't possible, by design.
 - **Client-token flow.** The app client has a secret, the `client_credentials` OAuth flow and the `agentharness/invoke` scope, and `ALLOW_CLIENT_TOKEN_AUTH` as its _only_ auth flow, which cannot sign users in. `GetClientToken` (August 2026) issues tokens without a hosted domain.
 - **The authorizer config lives in one place.** Every Harness gets `Auth.jwtAuthorizer`: discovery URL, allowed client and required scope. Cognito access tokens have no `aud` claim, so it checks the client rather than the audience.
-- **Secret delivery.** The CLI reads the secret with the caller's IAM credentials (`DescribeUserPoolClient`) and exchanges it for a token, so only someone with IAM access can mint tokens. It never appears in stack outputs. When an external caller needs it, store it in Secrets Manager.
-- **Trust boundary.** A token holder can override the system prompt and model per request. IAM limits the execution role to the configured model, and the Harness has no tools, so the damage is limited to off-task answers and token spend. Treat tokens as trusted-caller credentials.
+- **Secret delivery.** The CLI reads the secret with the caller's IAM credentials (`DescribeUserPoolClient`) and exchanges it for a token. IAM protects _reading_ the secret. Anyone who holds it can mint tokens, because `GetClientToken` isn't IAM-authorized. So it never appears in stack outputs. When an external caller needs it, store it in Secrets Manager.
+- **Trust boundary (checked against the AWS Harness security docs, 2026-11-15).** A token gives full control of the agent's session:
+  - Per request, a caller can override the model, system prompt, tools, `allowedTools`, skills and limits. `allowedTools: ["*"]` turns on the built-in shell, file and web tools, and sessions have public network access. There is no setting to turn overrides off.
+  - One client can call every agent in its stage.
+  - What _is_ enforced is the execution role. It can call the configured inference profile only (direct foundation-model calls require `bedrock:InferenceProfileArn`), can reach its own gateway only, and is denied `sts:AssumeRole`. A caller can point the model at another provider, but then our role isn't the one paying.
+  - So tokens are for trusted maintainers. Before anyone untrusted gets access, a validating layer must sit in front of the Harness (plan §8).
 - **Cost.** About $0.002–0.003 per token request. The CLI reuses a token until a minute before it expires.
 - **Later:** one client per consumer (separate revocation and attribution) and per-agent scopes.
 
@@ -193,5 +198,6 @@ docs/
 
 - Deleting stacks every night is a safety net for the maintainer's account, not a kit feature, so it's a separate CDK app in `ops/cleanup`, deployed once.
 - EventBridge Scheduler calls CloudFormation `DeleteStack` directly (a universal target): no Lambda. There's one schedule per stage, at 02:00 Europe/London.
-- The schedule's role can delete only `agentharness-<stage>-agents` stacks, not its own stack (checked with `iam simulate-principal-policy`).
+- The schedule's role can delete only `agentharness-<stage>-agents` stacks, not its own stack (checked with `iam simulate-principal-policy`). CloudFormation performs the deletion with the stack's own role, which is why the schedule needs nothing more.
+- A successful schedule run means deletion was _requested_. The runbook checks that the stack reached `DELETE_COMPLETE`.
 - **Runtime logs.** The Harness creates its log group outside the stack, at creation time, so the stack can neither pre-create nor delete it. An account-level CloudWatch Logs retention policy (November 2026) on the prefix `/aws/bedrock-agentcore/runtimes/harness_agentharness_` keeps them for 30 days with no Lambda. CloudFormation can't create that policy type yet, so it's a one-off command in `setup.md`.

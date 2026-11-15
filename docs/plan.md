@@ -1,6 +1,6 @@
 # Plan: MVP, CI, deployment and safety
 
-Status: **agreed**, 2026-11-14. **M1 done** (deployed and verified 2026-11-14), plus bearer-token auth (D15) and nightly cleanup (D16). Revised after an external review (Codex); the changes are listed in §10. Naming, structure and git conventions are recorded in [decisions.md](decisions.md) D12–D14.
+Status: **agreed**, 2026-11-14. **M1 done** (deployed and verified 2026-11-14), plus bearer-token auth (D15) and nightly cleanup (D16). Revised after an external review (Codex); the changes are listed in §10. Revised again on 2026-11-15 after checking the AgentCore Harness security docs; see §13. Naming, structure and git conventions are recorded in [decisions.md](decisions.md) D12–D14.
 
 ---
 
@@ -76,7 +76,7 @@ Each milestone ends with something that runs.
 See D12. Each concept gets one file in `packages/agentharness/src/` (for example `load.ts`, `schema.ts`, `agents.ts`, `knowledge.ts`, `chat.ts`, `cli.ts`), and only `index.ts` and `cli.ts` are public.
 
 - `aws-cdk-lib` and `constructs` are **peerDependencies** of `agentharness`.
-- Every stack takes a `stage` (default `dev`, validated as `[a-z0-9]{1,12}`). Stack names include it, so personal and CI stacks never collide.
+- Every stack takes a `stage` (default `dev`, validated as `[a-z][a-z0-9]{0,7}`). Stack names include it, so personal and CI stacks never collide. Stages are at most 8 characters and agent names at most 16, so the Harness name `agentharness_<stage>_<agent>` stays within AgentCore's 40-character limit.
 
 ## 5. Testing strategy
 
@@ -84,7 +84,8 @@ See D12. Each concept gets one file in `packages/agentharness/src/` (for example
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------ | --------- | ----------------------------------------------- |
 | Unit: loader rules, name validation, YAML errors                                                                                                                                                                         | Vitest + fixture folders | No        | Pre-commit (changed files), every PR            |
 | Synth: resource shape, IAM (no `*` actions or resources except where AWS requires them, and each one documented), "no `knowledge/` → no KB", `allowedTools` pinned, memory disabled, tags present, cdk-nag zero findings | `aws-cdk-lib/assertions` | No        | Every PR                                        |
-| IAM simulation: `iam simulate-principal-policy` for the CI role and the runtime roles (allowed and denied cases)                                                                                                         | AWS CLI                  | Read-only | When roles change; in M5                        |
+| IAM simulation: `iam simulate-principal-policy` for the CI role and the runtime roles (allowed and denied cases), including: another model or profile is denied, and agent A can't call agent B's gateway                | AWS CLI                  | Read-only | When roles change; in M5                        |
+| Override probe: invoke with `allowedTools: ["*"]` and a harmless shell command, and with another `modelId`; record what actually happens in D15                                                                          | Script                   | Yes       | Once now, then when AgentCore changes           |
 | Smoke: deploy, `sync`, ask a golden question in a **fresh session**, check that the answer contains the planted fact **and** that a `Retrieve` tool event appeared, then report tokens                                   | Vitest + SDK             | **Yes**   | Manually approved CI run; by hand from a laptop |
 | Adversarial smoke: a planted "ignore your instructions" document; the agent must still answer the task and not echo the injected text                                                                                    | Vitest + SDK             | Yes       | With the smoke test                             |
 | Lifecycle: edit or delete a knowledge file, `sync` and confirm re-ingestion; empty `knowledge/`; failed ingestion fails `sync` with the file name; `destroy` leaves no stack, bucket or KB                               | Script                   | Yes       | Before M7, then by hand                         |
@@ -165,27 +166,37 @@ The smoke test checks for facts, not exact wording. The golden fact is a made-up
   - The `sub` names the _environment_, not the branch. So the branch restriction comes from the environment's settings: deployment branches = `main` only, a required reviewer, and admins can't bypass. **Test it:** a dispatch from another branch must fail to get credentials.
   - **Permissions:** `sts:AssumeRole` only, on that account's CDK bootstrap roles (`cdk-hnb659fds-{deploy,file-publishing,lookup}-role-<acct>-<region>`), plus `bedrock-agentcore:InvokeHarness` and read-only CloudFormation/logs for the smoke test.
   - Carries the permissions boundary. Max session 1h.
-- **The budget action is an access stop, not a spend cap.** Denying the developer and CI identities stops _new_ deploys and calls by them. It doesn't stop resources that are already running, and budget alerts lag actual usage. To actually limit spend:
-  - Service quotas and kit-enforced limits (tokens, iterations, KB size).
-  - Destroy-after-run in CI.
-  - A tested **emergency teardown runbook** (`docs/runbook.md`): destroy all `agentharness-*` stacks, then check with the Resource Groups tag API that no tagged resources remain.
+- **The budget action is an access stop, not a spend cap.** Denying the developer and CI identities stops _new_ deploys and calls by them. It doesn't stop token callers or the agents' execution roles, or resources that are already running. Budgets refresh only every 8–12 hours, and billing data lags on top of that. To actually limit spend:
+  - Service quotas, and the KB size cap. The Harness limits (tokens, iterations, timeout) are defaults that a token holder can raise.
+  - Destroy-after-run in CI, and the nightly cleanup (D16).
+  - A tested **emergency runbook** (`docs/runbook.md`), run by the admin:
+    1. Attach a deny on `bedrock:InvokeModel*` to every agentharness execution role. This is instant.
+    2. Destroy all `agentharness-*-agents` stacks and confirm `DELETE_COMPLETE`.
+    3. Check with the Resource Groups tag API that no tagged resources remain.
+  - The `-auth` stacks survive, so recovery is a redeploy.
 
 ### What the stacks create (enforced by synth tests)
 
 - Least-privilege roles, all carrying the boundary.
-- Harness:
-  - Model and system prompt pinned.
+- Harness defaults:
+  - Model and system prompt from the agent folder.
   - `allowedTools` explicit (gateway Retrieve only).
   - Memory disabled.
-  - Caller overrides never forwarded.
-  - `maxIterations`, `maxTokens` and `timeoutSeconds` set from `agent.json`, with **kit-enforced upper limits**.
+  - `maxIterations`, `maxTokens` and `timeoutSeconds` from `agent.json`, within kit maximums.
+  - **A caller can override every one of these** (D15). They're defaults, not limits.
+- Execution role (enforced, whatever the caller sends):
+  - It can call the configured inference profile only. Direct foundation-model calls require `bedrock:InferenceProfileArn`.
+  - It can reach the agent's own gateway only.
+  - It is denied `sts:AssumeRole`.
 - S3:
   - Block public access.
   - Enforce SSL.
   - SSE (S3-managed keys for the MVP; KMS optional).
   - `RemovalPolicy.DESTROY` + `autoDeleteObjects` only for non-prod stages.
 - Logs: retention set (for example 30 days), so nothing is kept forever.
-- No public endpoints. Inbound auth is SigV4 only.
+- Inbound auth: a JWT from the stage's Cognito client (D15). Tokens are for trusted maintainers only.
+- **Before any untrusted caller:** put a validating layer in front of the Harness. It builds each request itself and never forwards overrides. It throttles callers and tracks who owns which session. It is the only holder of the client secret, so callers can't go around it. Not built in the MVP.
+- The `-auth` stacks are termination-protected. The guardrails and the boundary deny `DeleteStack` and `UpdateTerminationProtection` on them, as for `CDKToolkit`. A deploy that changes the stack can still damage it, so full central ownership waits for the dedicated account (M5).
 
 ### Cost safety
 
@@ -202,7 +213,7 @@ The smoke test checks for facts, not exact wording. The golden fact is a made-up
   - The system prompt tells the agent that retrieved text is reference data, not instructions.
   - Iteration and token caps limit the damage from runaway loops.
   - The adversarial smoke test (§5) checks this.
-- No tools beyond Retrieve in the MVP, so injection can't trigger side effects. The remaining risks are disclosing KB content (which is public demo content anyway), going off-task, and wasting tokens.
+- By default no tools beyond Retrieve, so injected text can't trigger side effects. A token holder can enable more tools (D15), which is one more reason tokens are for trusted maintainers only. The remaining risks are disclosing KB content (which is public demo content anyway), going off-task, and wasting tokens.
 - Never put secrets in `knowledge/`; gitleaks scans it too.
 
 ### Working with AI assistants
@@ -240,72 +251,62 @@ The smoke test checks for facts, not exact wording. The golden fact is a made-up
 
 ## 11. Spend controls (next)
 
-**Principle:** identity and money are long-lived; compute is disposable. An **instance** is one deployed agent (one Harness).
+**Principle:** measure spend per agent, and stop spend at the account level. Automatic per-agent limits are deferred (see below).
 
-- **`agentharness-<stage>-control`** is long-lived and termination-protected (today's `-auth` stack, renamed). It holds:
-  - who may call: the Cognito client
-  - what each agent may do: one execution role per agent, with a stable name
-  - how much each agent may spend: a budget per agent
-- **`agentharness-<stage>-agents`** is disposable and deleted nightly. It holds only the Harnesses.
+| Need        | Mechanism                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Observe** | Bedrock attributes model spend to the calling IAM principal (IAM principal cost allocation, Bedrock only). Each agent has its own execution role, tagged `project`, `stage` and `agent`. The admin activates these as IAM principal cost allocation tags in the payer account. The tags appear only after the role's first call, and activation takes about 48h. **First, check one real billing line:** which principal is recorded for calls the Harness makes, and how much spend stays unattributed. |
+| **Report**  | `agentharness costs [--stage]`: month-to-date Cost Explorer spend grouped by `iamPrincipal/stage` and `iamPrincipal/agent` for Bedrock. Runtime, Gateway, KB, Cognito and Logs are reported by resource tag, and anything unattributed gets its own line. About $0.01 per run.                                                                                                                                                                                                                           |
+| **Stop**    | Account budget alerts, anomaly detection, the nightly cleanup (D16) and the emergency runbook (§8).                                                                                                                                                                                                                                                                                                                                                                                                      |
 
-| Need             | Mechanism                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Observe**      | Bedrock attributes model spend to the calling role's tags (IAM principal cost allocation). Execution roles carry `project`, `stage` and `agent`. Activate them as IAM principal cost allocation tags (admin, console only, about 48h).                                                                                                                                                                                                                                                                                                                                                    |
-| **Report**       | `agentharness costs [--stage]`: month-to-date Cost Explorer spend, filtered to `project`, grouped by `stage` and `agent`, listing Bedrock separately from Runtime, Cognito and Logs. About $0.01 per run.                                                                                                                                                                                                                                                                                                                                                                                 |
-| **Limit (soft)** | `agent.json` gains `"monthlyBudgetUsd"` (default 5, kit maximum 50). Each agent gets an AWS Budget filtered to Bedrock and its `stage` and `agent` tags: email at 80% actual and 100% forecast. A Budget Action (`APPLY_IAM_POLICY`, `AUTOMATIC`, `ACTUAL` 100%) attaches one shared deny-`bedrock:InvokeModel*` managed policy to that agent's role. The role lives in the control stack, so the block survives nightly redeploys. It's soft because billing lags, so an agent can overshoot by up to about a day of traffic. Request-level and Harness-wide token caps bound each call. |
-| **Restrict**     | The permissions boundary allows creating Harnesses only for an **admin-maintained allowlist of exact names** (for example `agentharness_dev_helper`). Adding an agent is a deliberate admin change. This is enforced by IAM for CloudFormation _and_ direct API calls, with no Lambda and no race. The kit checks the same list at synth, so errors are friendly. (Needs verifying: CreateHarness supports resource-level permissions on the name.)                                                                                                                                       |
+**Deferred: automatic per-agent budgets.**
 
-**Admin changes** (made once, by you):
+- AWS Budgets filters on resource tags. It documents no filter for IAM principal tags.
+- Budget Actions act 8–12 hours late, plus billing lag. They also need reset handling at the start of each month, and protection so a deploy can't detach the deny.
+- Moving the execution roles into a long-lived stack would create a cross-stack dependency on the disposable gateways.
+- That is a lot of moving parts for enforcement that arrives late.
 
-1. Boundary and guardrails: narrow the budget denies to the account kill-switch budget, and deny `iam:DetachRolePolicy` on the agentharness deny policy for everyone but the Budgets action role, so deploys can't lift a block.
-2. Boundary: the Harness name allowlist.
-3. Billing: activate the `project`, `stage` and `agent` IAM principal tags.
+**If per-agent budgets become a requirement:** create one **application inference profile per agent**, tagged `project`, `stage` and `agent`.
 
-**Tests before calling it done:** a threshold crossing blocks only that agent; a redeploy while blocked stays blocked; nightly teardown keeps the budget and the block; the block resets at month rollover after the action is reset; a non-allowlisted name fails to deploy.
+- Budgets can filter on its tags.
+- The Harness model becomes the profile ARN.
+- The execution role's `bedrock:InferenceProfileArn` condition (§8) then points at it.
+- It replaces IAM principal tags, so there is one attribution mechanism, not two.
+- Time-box a live test first: Nova 2 Lite's `global.` profile behind an application profile, and a Harness accepting that ARN.
 
-**Not doing:** strict real-time dollar caps. They need admission control with atomic reservations, which is too much for this project.
+**Not doing:** strict real-time dollar caps. They need admission control with atomic reservations.
 
-**Order:** observe and report first, then the control-stack split, then limit, then restrict.
-
-## 12. Central approval of agent spaces (open, under discussion)
+## 12. Central approval of agent spaces (deferred; design recorded)
 
 **Goal:** teams can't create agents, or the resources behind them, without central approval. A **space** is a team's approved area: owners, a budget, and a list of agents.
 
-**Effect on §11:** the principle still holds; ownership moves. The long-lived control layer (identity, roles, budgets) becomes **centrally owned and generated per space**. Teams own only the disposable compute. §11's boundary allowlist is replaced by the registry plus per-space deploy roles. Fold this into §11 before building it.
+**Status:** not built. One maintainer and one account don't need it. This section records how it would work and what IAM can and can't enforce.
 
-### Proposed shape
+### Shape
 
-1. **Registry as code, approval as a PR.** A platform-owned folder, using the kit's own conventions:
+- **Registry as code, approval as a PR.** `spaces/<space>/space.json` (`owners`, `monthlyBudgetUsd`, `agents`). CODEOWNERS makes the platform team the required reviewers. The merge is the approval, and git history is the audit trail.
+- **The platform owns everything long-lived** for each space: the Cognito client, and the execution roles.
+- **The team experience is unchanged:** `agents/<name>/` plus a deploy.
 
-   ```
-   spaces/
-     support/space.json   { "owners": [...], "monthlyBudgetUsd": 50, "agents": ["triage", "faq"] }
-   ```
+### What IAM can and can't enforce (Service Authorization Reference, 2026-11-15)
 
-   A team requests a space or an agent by opening a PR, and CODEOWNERS makes the platform team the required reviewers. The merge is the approval, and git history is the audit trail.
+- **`CreateHarness` can't be restricted by name.** It has no resource-level permissions. It does support `aws:RequestTag` and `aws:TagKeys`, so _required tag values_ (`space`, `agent`) can be enforced, as long as nobody can change the tags afterwards.
+- **Update, delete and invoke can be scoped** by name prefix (a Harness ID is `<name>-<10 characters>`) or by tag.
+- **`iam:PassRole` limited to a space's own execution roles** stops a team borrowing another team's permissions. It does **not** cap the agent count: several Harnesses can reuse one role. `CreateHarness` also needs `CreateAgentRuntime`, `CreateMemory`, `GetMemory` and `TagResource`. Which resources those can be scoped to is untested.
+- **A CDK bootstrap qualifier only namespaces resources.** Isolation comes from a scoped CloudFormation execution role per space, and from controlling who can operate which stacks. Anyone who can update or delete a stack acts as its role.
 
-2. **The platform deploys control per space.** It deploys what §11 calls the control stack: a Cognito client, one execution role per agent, budgets and Budget Actions. The kit gains a second entry point for this platform app, which reads `spaces/`.
-3. **Teams deploy only inside their space.** Each space gets a deploy role that can create Harnesses only under its own name prefix, and can only pass (`iam:PassRole` with `iam:PassedToService`) the execution roles made for that space. Teams create no IAM roles.
-4. **The registry is the agent limit.** "Centrally restrict the number of agents" stops being a separate feature, because the registry is the count. The kit checks `agents/` against the space at synth, so errors are friendly. IAM is the real enforcement.
+### Consequences
 
-The team-side experience is unchanged: `agents/<name>/` plus `cdk deploy`.
+- **Central CI deploys.** If the registry must be enforced exactly, the platform's CI must be the only thing that can create Harnesses. Teams open PRs, and the platform deploys from their repos. That is simpler to reason about than per-space deploy roles.
+- **Naming needs a redesign first.** Harness names are capped at 40 characters, and today's longest is 38, so there's no room for a space segment. A space tag doesn't prevent collisions either: two spaces with the same stage and agent get identical stack and Harness names. So stages must be unique across the account, or names need redesigning.
+- **Approve each agent,** to keep per-agent attribution. **One Cognito client per space,** so each space's access can be revoked separately.
+- **The path to scale is an account per space** under AWS Organizations: hard isolation, separate billing, and service control policies.
 
-### Challenges
+## 13. Changes after checking the Harness security docs (2026-11-15)
 
-- **Can IAM limit Harness creation by name?** Check whether `CreateHarness` supports resource-level permissions, `aws:RequestTag` or a name condition. If not, teams don't deploy at all, and central CI deploys from team repos. That still works, but it's heavier.
-- **CloudFormation's own permissions.** CDK deploys through the bootstrap CloudFormation execution role, which is usually close to admin. Limiting the team's own identity means little without a scoped execution role per space, either through a per-space bootstrap qualifier or `cdk deploy --role-arn`.
-- **Approve each agent or each space?** Approving each agent keeps per-agent cost tracking, because spend is attributed to each agent's execution role. The cost is one PR per new agent. Approving each space (budget plus a maximum number of agents) gives teams more freedom, but agents share a role and you lose the per-agent split.
-- **One account or one per space?** The enterprise answer is an account per space under AWS Organizations, with service control policies and account-level budgets: hard isolation, and cost separation for free. One shared account with spaces is enough for this project. Record the per-account setup as the path to scale.
-- **Lifecycle.** Remove a space in order: team agents first, then platform control. Keep budgets so past spend can still be reported. The nightly cleanup reads the registry to know which stages to tear down.
-- **Cognito.** Decide between one client per space (separate secrets, which can be revoked per space) and a shared client. The Harness's `allowedClients` then lists only that space's client.
-
-### Decisions to make
-
-| Decision                     | Leaning                                                             |
-| ---------------------------- | ------------------------------------------------------------------- |
-| Approve each agent or space  | Each agent: the PR is one line, and per-agent cost tracking is kept |
-| One account or one per space | One account now, account per space recorded as the path to scale    |
-| Who deploys team agents      | Teams, if IAM can scope `CreateHarness`; otherwise central CI       |
-| Cognito client               | One per space                                                       |
-
-**Next:** verify the `CreateHarness` IAM authorization (resource types and condition keys), and how to scope the CloudFormation execution role per space. Then rewrite §11 and §12 as one plan.
+- **Harness settings are defaults, not limits.** A token holder can override the model, prompt, tools, `allowedTools`, skills and limits, including turning on shell and web tools. Tokens are now described as trusted-maintainer credentials, and a validating layer is required before any untrusted caller (§8, D15).
+- **The execution role is the enforced boundary.** Model calls must now go through the configured inference profile (`bedrock:InferenceProfileArn`), and `sts:AssumeRole` is denied.
+- **The `-auth` stacks are protected** in the guardrails and boundary, like `CDKToolkit`.
+- **§11 is smaller:** observe, report, stop. Per-agent Budget Actions are deferred, because Budgets document no IAM principal tag filter and their enforcement lags. Application inference profiles are the recorded upgrade path.
+- **§12 is deferred,** with its IAM claims corrected: `CreateHarness` can't be restricted by name, `PassRole` doesn't cap the agent count, and qualifiers don't isolate.
+- **New tests:** an override probe, plus IAM simulation of model and gateway isolation (§5).
