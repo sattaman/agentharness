@@ -2,6 +2,12 @@
   "name": "agentharness",
   "version": "0.0.0",
   "description": "A folder is an agent: agent.json, prompt.md and knowledge/ deployed to Amazon Bedrock AgentCore with AWS CDK.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sattaman/agentharness.git",
+    "directory": "packages/agentharness"
+  },
   "type": "module",
   "engines": {
     "node": ">=24"

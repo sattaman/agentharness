@@ -259,3 +259,7 @@ pnpm check      # format, build, typecheck, lint, test
 ```
 
 Every commit runs the format check, typecheck, lint (zero warnings) and a secret scan.
+
+## Licence
+
+[Apache-2.0](LICENSE)
