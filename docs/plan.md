@@ -262,32 +262,26 @@ The smoke test checks for facts, not exact wording. The golden fact is a made-up
 - _A random golden fact per run._ That would mean uploading a new document and waiting for re-ingestion on every run. A fixed fact that appears only in `knowledge/`, together with the tool-event assertion, gives the same guarantee more cheaply.
 - _Hide the Q&A from the public job summary._ We kept a short answer because the demo content is public by design; the summary is still the visible proof that it works.
 
-## 11. Spend controls (next)
+## 11. Spend controls
 
-**Principle:** measure spend per agent, and stop spend at the account level. Automatic per-agent limits are deferred (see below).
+**Built (D18):** the front door meters every call and enforces a monthly budget per caller. It reserves each call's maximum cost before invoking and settles the actual cost afterwards, in a DynamoDB ledger. AWS Budgets is the slow backstop: a Budget Action applies a deny policy to the front-door role at 100% of the account budget.
 
-| Need        | Mechanism                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Observe** | Bedrock attributes model spend to the calling IAM principal (IAM principal cost allocation, Bedrock only). Each agent has its own execution role, tagged `project`, `stage` and `agent`. The admin activates these as IAM principal cost allocation tags in the payer account. The tags appear only after the role's first call, and activation takes about 48h. **First, check one real billing line:** which principal is recorded for calls the Harness makes, and how much spend stays unattributed. |
-| **Report**  | `agentharness costs [--stage]`: month-to-date Cost Explorer spend grouped by `iamPrincipal/stage` and `iamPrincipal/agent` for Bedrock. Runtime, Gateway, KB, Cognito and Logs are reported by resource tag, and anything unattributed gets its own line. About $0.01 per run.                                                                                                                                                                                                                           |
-| **Stop**    | Account budget alerts, anomaly detection, the nightly cleanup (D16) and the emergency runbook (§8).                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Need                      | Mechanism                                                                                                                                                    |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Limit per call**        | Harness token, iteration and time limits, made binding by the front door (D17)                                                                               |
+| **Limit per caller**      | Monthly USD budget in `callers.json` (default $5); 429 once reached (D18)                                                                                    |
+| **Limit for the account** | Budget Action: `agentharness-spend-stop` on the front-door role (setup.md step 16)                                                                           |
+| **Observe**               | One content-free log line per request: caller, agent, tokens, cost, reservation                                                                              |
+| **Reconcile**             | Cost Explorer by `project`, `stage` and `agent` tags. Bedrock spend by IAM principal (execution role) once activated and checked against a real billing line |
 
-**Deferred: automatic per-agent budgets.**
+**Next:**
 
-- AWS Budgets filters on resource tags. It documents no filter for IAM principal tags.
-- Budget Actions act 8–12 hours late, plus billing lag. They also need reset handling at the start of each month, and protection so a deploy can't detach the deny.
-- Moving the execution roles into a long-lived stack would create a cross-stack dependency on the disposable gateways.
-- That is a lot of moving parts for enforcement that arrives late.
+- Logs Insights queries in the runbook.
+- CloudWatch metrics from the log line.
+- `agentharness costs` (metered compared with billed).
+- Per-agent budgets if needed.
 
-**If per-agent budgets become a requirement:** create one **application inference profile per agent**, tagged `project`, `stage` and `agent`.
-
-- Budgets can filter on its tags.
-- The Harness model becomes the profile ARN.
-- The execution role's `bedrock:InferenceProfileArn` condition (§8) then points at it.
-- It replaces IAM principal tags, so there is one attribution mechanism, not two.
-- Time-box a live test first: Nova 2 Lite's `global.` profile behind an application profile, and a Harness accepting that ARN.
-
-**Not doing:** strict real-time dollar caps. They need admission control with atomic reservations.
+**Not doing:** per-agent AWS Budgets with Budget Actions (no IAM principal tag filter, hours of lag), application inference profiles (attribution only), API Gateway usage plans (API keys, best effort).
 
 ## 12. Central approval of agent spaces (deferred; design recorded)
 
@@ -327,3 +321,4 @@ The smoke test checks for facts, not exact wording. The golden fact is a made-up
   - A token can open a root shell, and `additionalParams` can leak the role's credentials (D15). The untrusted-caller design now uses SigV4 with no shell permissions.
   - Each Harness now sets the invocation `maxTokens` budget, a sliding-window `truncation`, and shorter session lifetimes (D8).
 - **A front door is now part of the MVP (D17).** It makes access safe to share with other teams. Verified live: no token gives 401, overrides give 400, an agent not granted gives 403, and a token sent straight to a Harness gives 403.
+- **Spend is metered and capped in the front door (D18).** §11 is rewritten: per-caller monthly budgets with reserve-and-settle in DynamoDB, and a Budget Action on the front-door role as the backstop. D5's prices are corrected to London rates.

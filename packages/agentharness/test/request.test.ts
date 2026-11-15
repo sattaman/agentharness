@@ -9,8 +9,8 @@ const request = {
 const support = { clientId: 'support-id', scopes: ['agentharness/helper'] };
 const other = { clientId: 'other-id', scopes: ['agentharness/helper'] };
 const grants = new Map([
-  ['support-id', ['helper']],
-  ['revoked-id', ['plain']],
+  ['support-id', { caller: 'support', agents: ['helper'], budgetMicros: 5_000_000 }],
+  ['revoked-id', { caller: 'revoked', agents: ['plain'], budgetMicros: 5_000_000 }],
 ]);
 
 describe('chatRequestSchema', () => {

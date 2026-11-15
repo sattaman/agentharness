@@ -20,11 +20,17 @@ export interface Caller {
   readonly scopes: readonly string[];
 }
 
-export type Grants = ReadonlyMap<string, readonly string[]>;
+export interface Grant {
+  readonly caller: string;
+  readonly agents: readonly string[];
+  readonly budgetMicros: number;
+}
+
+export type Grants = ReadonlyMap<string, Grant>;
 
 export const mayCall = (caller: Caller, agent: string, grants: Grants): boolean =>
   caller.scopes.includes(scopeFor(agent)) &&
-  (grants.get(caller.clientId)?.includes(agent) ?? false);
+  (grants.get(caller.clientId)?.agents.includes(agent) ?? false);
 
 export const sessionFor = (caller: Caller, { agent, sessionId }: ChatRequest): string =>
   createHash('sha256')

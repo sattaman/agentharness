@@ -33,7 +33,12 @@ One-off steps before the first `cdk deploy`. Steps marked 👤 are done by a per
     ```
     Add `--dry-run` first to see which log groups it would affect. It takes effect within 24 hours.
 14. **Tracing:** enable CloudWatch Transaction Search once per account (CloudWatch → Application Signals → Transaction Search). Harness traces don't appear without it.
-15. Activate the `project` cost allocation tag in Billing as soon as the first resource exists. It takes up to about 48 hours.
+15. Activate the `project`, `stage` and `agent` cost allocation tags in Billing as soon as the first resource exists. It takes up to about 48 hours.
+16. **Spend backstop** (after the first deploy of a stage). The front door enforces each caller's budget at once. This is the slow, account-wide stop behind it.
+    ```bash
+    aws iam create-policy --policy-name agentharness-spend-stop --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Action":["bedrock-agentcore:InvokeHarness","bedrock-agentcore:InvokeAgentRuntime"],"Resource":"*"}]}'
+    ```
+    On the account budget, add an action: _Apply IAM policy_, automatic, at 100% of actual spend, policy `agentharness-spend-stop`, role `agentharness-<stage>-frontdoor-<region>`. It acts after Budgets refreshes (every 8–12 hours) and stops new requests only. The guardrails and boundary deny detaching it. While it is attached, the front-door role can't be replaced, so detach it as admin before such a change.
 
 ## Permissions boundary for app roles
 

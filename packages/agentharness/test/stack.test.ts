@@ -25,7 +25,11 @@ const plain: AgentSpec = {
 };
 
 const app = createApp();
-const authStack = new AuthStack(app, { stage: 'test', agents: [helper, plain] });
+const authStack = new AuthStack(app, {
+  stage: 'test',
+  agents: [helper, plain],
+  callers: { support: { monthlyBudgetUsd: 20 } },
+});
 const agentsStack = new AgentsStack(app, { stage: 'test', agents: [helper, plain] });
 const template = Template.fromStack(agentsStack);
 const authTemplate = Template.fromStack(authStack);
@@ -280,10 +284,38 @@ describe('AuthStack', () => {
       'bedrock-agentcore:InvokeAgentRuntime',
       'bedrock-agentcore:InvokeHarness',
       'cloudformation:DescribeStacks',
+      'dynamodb:UpdateItem',
       'logs:CreateLogStream',
       'logs:PutLogEvents',
     ]);
     expect(JSON.stringify(authTemplate.toJSON())).toContain('harness/agentharness_test_*');
+  });
+
+  it('keeps a retained, recoverable spend ledger', () => {
+    authTemplate.hasResource('AWS::DynamoDB::Table', {
+      DeletionPolicy: 'Retain',
+      Properties: Match.objectLike({
+        BillingMode: 'PAY_PER_REQUEST',
+        PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true },
+      }),
+    });
+  });
+
+  it('gives the front door a fixed role name for the budget backstop', () => {
+    authTemplate.hasResourceProperties('AWS::IAM::Role', {
+      RoleName: { 'Fn::Join': ['', ['agentharness-test-frontdoor-', { Ref: 'AWS::Region' }]] },
+    });
+  });
+
+  it('hands the front door each caller’s budget, defaulting to $5', () => {
+    const env = JSON.stringify(
+      authTemplate.findResources('AWS::Lambda::Function', {
+        Properties: { Handler: 'index.handler' },
+      }),
+    );
+    expect(env).toContain('\\"caller\\":\\"support\\"');
+    expect(env).toContain('\\"budgetMicros\\":20000000');
+    expect(env).toContain('\\"budgetMicros\\":5000000');
   });
 
   it('is protected from accidental deletion', () => {

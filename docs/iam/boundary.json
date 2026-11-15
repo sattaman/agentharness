@@ -118,6 +118,26 @@
         "arn:aws:s3:::OTHER-WORKLOAD-*",
         "arn:aws:s3:::OTHER-WORKLOAD-*/*"
       ]
+    },
+    {
+      "Sid": "SpendStopStaysOn",
+      "Effect": "Deny",
+      "Action": [
+        "iam:DetachRolePolicy",
+        "iam:CreatePolicyVersion",
+        "iam:SetDefaultPolicyVersion",
+        "iam:DeletePolicy",
+        "iam:DeletePolicyVersion"
+      ],
+      "Resource": [
+        "arn:aws:iam::*:role/agentharness-*-frontdoor-*",
+        "arn:aws:iam::*:policy/agentharness-spend-stop"
+      ],
+      "Condition": {
+        "ArnLikeIfExists": {
+          "iam:PolicyARN": "arn:aws:iam::*:policy/agentharness-spend-stop"
+        }
+      }
     }
   ]
 }

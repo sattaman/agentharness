@@ -9,6 +9,8 @@ export const replySchema = z.discriminatedUnion('type', [
     type: z.literal('usage'),
     inputTokens: z.number(),
     outputTokens: z.number(),
+    cacheReadTokens: z.number(),
+    cacheWriteTokens: z.number(),
   }),
   z.strictObject({ type: z.literal('error'), message: z.string() }),
 ]);
@@ -40,6 +42,8 @@ export async function* repliesFrom(stream: HarnessStream): AsyncGenerator<Reply>
         type: 'usage',
         inputTokens: usage.inputTokens ?? 0,
         outputTokens: usage.outputTokens ?? 0,
+        cacheReadTokens: usage.cacheReadInputTokens ?? 0,
+        cacheWriteTokens: usage.cacheWriteInputTokens ?? 0,
       };
     }
   }

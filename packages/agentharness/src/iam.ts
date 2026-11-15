@@ -27,9 +27,11 @@ export function serviceRole(
   id: string,
   assumedBy: ServicePrincipal,
   permissions: readonly Permission[],
+  roleName?: string,
 ): Role {
   const role = new Role(scope, id, {
     assumedBy,
+    ...(roleName === undefined ? {} : { roleName }),
     inlinePolicies: {
       permissions: new PolicyDocument({
         statements: permissions.map((permission) => new PolicyStatement(permission)),

@@ -45,8 +45,16 @@ export async function chat(agent: string, stage: string, caller = maintainers): 
     for await (const line of lines) {
       const message = line.trim();
       if (message === '') break;
-      for await (const reply of ask(access.apiUrl, await token(), { agent, message, sessionId })) {
-        show(reply);
+      try {
+        for await (const reply of ask(access.apiUrl, await token(), {
+          agent,
+          message,
+          sessionId,
+        })) {
+          show(reply);
+        }
+      } catch (error) {
+        console.log(`\n[${error instanceof Error ? error.message : String(error)}]`);
       }
       prompt();
     }

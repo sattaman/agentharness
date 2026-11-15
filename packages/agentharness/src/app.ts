@@ -1,6 +1,7 @@
 import { App, Tags, Validations } from 'aws-cdk-lib';
 import { AwsSolutionsChecks } from 'cdk-nag';
-import { loadAgents } from './load.js';
+import { dirname, join, resolve } from 'node:path';
+import { loadAgents, loadCallers } from './load.js';
 import { stageSchema } from './schema.js';
 import { AgentsStack, AuthStack } from './stack.js';
 
@@ -15,7 +16,8 @@ export function buildApp(agentsDir: string): App {
   const app = createApp();
   const stage = stageSchema.parse(app.node.tryGetContext('stage'));
   const agents = loadAgents(agentsDir);
-  new AuthStack(app, { stage, agents });
+  const callers = loadCallers(join(dirname(resolve(agentsDir)), 'callers.json'), agents);
+  new AuthStack(app, { stage, agents, callers });
   new AgentsStack(app, { stage, agents });
   return app;
 }

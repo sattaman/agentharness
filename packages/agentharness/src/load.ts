@@ -1,7 +1,13 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, join, relative, sep } from 'node:path';
 import { z } from 'zod';
-import { agentConfigSchema, type AgentConfig } from './schema.js';
+import { maintainers } from './names.js';
+import {
+  agentConfigSchema,
+  callersConfigSchema,
+  type AgentConfig,
+  type CallersConfig,
+} from './schema.js';
 
 export interface AgentSpec {
   readonly name: string;
@@ -16,6 +22,7 @@ export interface KnowledgeFiles {
 }
 
 const maxKnowledgeBytes = 10 * 1024 * 1024;
+const maxPromptCharacters = 20_000;
 
 const agentName = /^[a-z][a-z0-9]{0,15}$/;
 
@@ -45,8 +52,26 @@ export function loadAgent(dir: string): AgentSpec {
 
   const prompt = read(join(dir, 'prompt.md')).trim();
   if (prompt === '') throw new Error(`${dir}/prompt.md is empty`);
+  if (prompt.length > maxPromptCharacters) {
+    throw new Error(
+      `${dir}/prompt.md is ${String(prompt.length)} characters; the limit is ${String(maxPromptCharacters)}`,
+    );
+  }
 
   return { name, prompt, config: config.data, knowledge: loadKnowledge(join(dir, 'knowledge')) };
+}
+
+export function loadCallers(path: string, agents: readonly AgentSpec[]): CallersConfig {
+  if (!existsSync(path)) return {};
+  const callers = callersConfigSchema.safeParse(readJson(path));
+  if (!callers.success) throw new Error(`${path}\n${z.prettifyError(callers.error)}`);
+
+  const known = new Set([maintainers, ...agents.flatMap(({ config }) => config.callers)]);
+  const unknown = Object.keys(callers.data).filter((caller) => !known.has(caller));
+  if (unknown.length > 0) {
+    throw new Error(`${path} sets budgets for ${unknown.join(', ')}, but no agent lists them`);
+  }
+  return callers.data;
 }
 
 function loadKnowledge(dir: string): KnowledgeFiles | undefined {

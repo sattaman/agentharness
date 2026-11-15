@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { loadAgent, loadAgents } from '../src/load.js';
+import { loadAgent, loadAgents, loadCallers } from '../src/load.js';
 
 const fixtures = join(import.meta.dirname, 'fixtures');
 
@@ -60,5 +60,39 @@ describe('knowledge', () => {
     writeFileSync(join(agent, 'knowledge', 'big.md'), Buffer.alloc(10 * 1024 * 1024 + 1));
 
     expect(() => loadAgent(agent)).toThrow(/the limit is 10485760/);
+  });
+});
+
+describe('loadCallers', () => {
+  const [helper] = loadAgents(join(fixtures, 'valid'));
+  const agents = helper ? [{ ...helper, config: { ...helper.config, callers: ['support'] } }] : [];
+  const write = (content: string): string => {
+    const path = join(mkdtempSync(join(tmpdir(), 'callers-')), 'callers.json');
+    writeFileSync(path, content);
+    return path;
+  };
+
+  it('treats a missing file as no budgets', () => {
+    expect(loadCallers(join(tmpdir(), 'no-such-callers.json'), agents)).toEqual({});
+  });
+
+  it('reads budgets for known callers, including maintainers', () => {
+    const path = write(
+      '{"support": {"monthlyBudgetUsd": 20}, "maintainers": {"monthlyBudgetUsd": 0}}',
+    );
+    expect(loadCallers(path, agents)).toEqual({
+      support: { monthlyBudgetUsd: 20 },
+      maintainers: { monthlyBudgetUsd: 0 },
+    });
+  });
+
+  it('rejects a budget for a caller no agent lists, so typos are caught', () => {
+    const path = write('{"suport": {"monthlyBudgetUsd": 20}}');
+    expect(() => loadCallers(path, agents)).toThrow('sets budgets for suport');
+  });
+
+  it('rejects a negative budget', () => {
+    const path = write('{"support": {"monthlyBudgetUsd": -1}}');
+    expect(() => loadCallers(path, agents)).toThrow('callers.json');
   });
 });

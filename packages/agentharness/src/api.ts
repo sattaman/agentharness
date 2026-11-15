@@ -1,4 +1,4 @@
-import { CfnResource, Duration, RemovalPolicy, Stack, Validations } from 'aws-cdk-lib';
+import { Aws, CfnResource, Duration, RemovalPolicy, Stack, Validations } from 'aws-cdk-lib';
 import {
   AuthorizationType,
   CognitoUserPoolsAuthorizer,
@@ -8,6 +8,7 @@ import {
   RestApi,
 } from 'aws-cdk-lib/aws-apigateway';
 import type { UserPool } from 'aws-cdk-lib/aws-cognito';
+import { AttributeType, BillingMode, Table } from 'aws-cdk-lib/aws-dynamodb';
 import { ServicePrincipal } from 'aws-cdk-lib/aws-iam';
 import { Architecture, Code, Function, Runtime } from 'aws-cdk-lib/aws-lambda';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
@@ -15,15 +16,17 @@ import { Construct } from 'constructs';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { arn, serviceRole } from './iam.js';
-import { harnessName, stackNames } from './names.js';
-import { chatRequestSchema } from './request.js';
+import { frontDoorRoleName, harnessName, stackNames } from './names.js';
+import { chatRequestSchema, type Grant } from './request.js';
+import type { Limits } from './spend.js';
 
 export interface ApiProps {
   readonly stage: string;
   readonly userPool: UserPool;
   readonly scopes: readonly string[];
-  /** Client ID to the agents that client may call, checked on every request. */
-  readonly grants: readonly (readonly [string, readonly string[]])[];
+  /** Client ID to the caller's name, the agents it may call and its monthly budget. */
+  readonly grants: readonly (readonly [string, Grant])[];
+  readonly limits: Readonly<Record<string, Limits>>;
 }
 
 const handlerCode = fileURLToPath(new URL('../dist/handler', import.meta.url));
@@ -31,31 +34,50 @@ const maxAnswer = Duration.minutes(15);
 
 export class Api extends Construct {
   readonly url: string;
+  readonly ledger: Table;
 
-  constructor(scope: Construct, id: string, { stage, userPool, scopes, grants }: ApiProps) {
+  constructor(scope: Construct, id: string, { stage, userPool, scopes, grants, limits }: ApiProps) {
     super(scope, id);
 
     const logGroup = new LogGroup(this, 'Logs', {
       retention: RetentionDays.ONE_MONTH,
       removalPolicy: RemovalPolicy.DESTROY,
     });
-    const role = serviceRole(this, 'Role', new ServicePrincipal('lambda.amazonaws.com'), [
-      {
-        why: 'Write its own logs.',
-        actions: ['logs:CreateLogStream', 'logs:PutLogEvents'],
-        resources: [`${logGroup.logGroupArn}:*`],
-      },
-      {
-        why: 'Find each Harness ARN in the agents stack outputs. Stack ARNs end in a generated ID.',
-        actions: ['cloudformation:DescribeStacks'],
-        resources: [arn('cloudformation', `stack/${stackNames.agents(stage)}/*`)],
-      },
-      {
-        why: 'Invoke this stage’s agents, and nothing else: no commands, no shells. Harness IDs are the name plus a generated suffix.',
-        actions: ['bedrock-agentcore:InvokeHarness', 'bedrock-agentcore:InvokeAgentRuntime'],
-        resources: [arn('bedrock-agentcore', `harness/${harnessName(stage, '*')}`)],
-      },
-    ]);
+    this.ledger = new Table(this, 'Ledger', {
+      partitionKey: { name: 'pk', type: AttributeType.STRING },
+      billingMode: BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+
+    const role = serviceRole(
+      this,
+      'Role',
+      new ServicePrincipal('lambda.amazonaws.com'),
+      [
+        {
+          why: 'Write its own logs.',
+          actions: ['logs:CreateLogStream', 'logs:PutLogEvents'],
+          resources: [`${logGroup.logGroupArn}:*`],
+        },
+        {
+          why: 'Find each Harness ARN in the agents stack outputs. Stack ARNs end in a generated ID.',
+          actions: ['cloudformation:DescribeStacks'],
+          resources: [arn('cloudformation', `stack/${stackNames.agents(stage)}/*`)],
+        },
+        {
+          why: 'Invoke this stage’s agents, and nothing else: no commands, no shells. Harness IDs are the name plus a generated suffix.',
+          actions: ['bedrock-agentcore:InvokeHarness', 'bedrock-agentcore:InvokeAgentRuntime'],
+          resources: [arn('bedrock-agentcore', `harness/${harnessName(stage, '*')}`)],
+        },
+        {
+          why: 'Reserve and settle each caller’s monthly spend.',
+          actions: ['dynamodb:UpdateItem'],
+          resources: [this.ledger.tableArn],
+        },
+      ],
+      frontDoorRoleName(stage, Aws.REGION),
+    );
 
     const handler = new Function(this, 'Handler', {
       runtime: Runtime.NODEJS_24_X,
@@ -66,7 +88,12 @@ export class Api extends Construct {
       logGroup,
       timeout: maxAnswer,
       memorySize: 256,
-      environment: { STAGE: stage, GRANTS: Stack.of(this).toJsonString(grants) },
+      environment: {
+        STAGE: stage,
+        GRANTS: Stack.of(this).toJsonString(grants),
+        AGENTS: JSON.stringify(limits),
+        LEDGER: this.ledger.tableName,
+      },
     });
     Validations.of(handler).acknowledge({
       id: 'AwsSolutions::AwsSolutions-L1',

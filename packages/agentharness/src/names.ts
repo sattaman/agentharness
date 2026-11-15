@@ -17,3 +17,6 @@ export const outputKeys = {
 };
 
 export const maintainers = 'maintainers';
+
+export const frontDoorRoleName = (stage: string, region: string): string =>
+  `agentharness-${stage}-frontdoor-${region}`;

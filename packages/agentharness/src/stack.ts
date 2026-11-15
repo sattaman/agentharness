@@ -5,17 +5,23 @@ import { Api } from './api.js';
 import { Auth } from './auth.js';
 import type { AgentSpec } from './load.js';
 import { outputKeys, stackNames } from './names.js';
+import { defaultMonthlyBudgetUsd, type CallersConfig } from './schema.js';
+import { toMicros } from './spend.js';
 
 export interface StageProps extends StackProps {
   readonly stage: string;
   readonly agents: readonly AgentSpec[];
 }
 
+export interface AuthStackProps extends StageProps {
+  readonly callers: CallersConfig;
+}
+
 export class AuthStack extends Stack {
   readonly auth: Auth;
   readonly api: Api;
 
-  constructor(scope: Construct, { stage, agents, ...props }: StageProps) {
+  constructor(scope: Construct, { stage, agents, callers, ...props }: AuthStackProps) {
     super(scope, stackNames.auth(stage), {
       description: 'Long-lived access to agentharness agents: callers and the front door.',
       terminationProtection: true,
@@ -28,8 +34,19 @@ export class AuthStack extends Stack {
       stage,
       userPool: this.auth.userPool,
       scopes: this.auth.scopes,
-      grants: [...this.auth.clients.values()].map(
-        ({ client, agents: allowed }) => [client.userPoolClientId, allowed] as const,
+      grants: [...this.auth.clients].map(([caller, { client, agents: allowed }]) => [
+        client.userPoolClientId,
+        {
+          caller,
+          agents: allowed,
+          budgetMicros: toMicros(callers[caller]?.monthlyBudgetUsd ?? defaultMonthlyBudgetUsd),
+        },
+      ]),
+      limits: Object.fromEntries(
+        agents.map(({ name, config: { model, maxTokens, maxIterations } }) => [
+          name,
+          { model, maxTokens, maxIterations },
+        ]),
       ),
     });
 
