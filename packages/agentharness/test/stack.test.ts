@@ -2,6 +2,7 @@ import { Match, Template } from 'aws-cdk-lib/assertions';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { createApp } from '../src/app.js';
+import { chatRequestSchema } from '../src/request.js';
 import type { AgentSpec } from '../src/load.js';
 import { AgentsStack, AuthStack } from '../src/stack.js';
 
@@ -274,6 +275,15 @@ describe('AuthStack', () => {
     authTemplate.hasResourceProperties('AWS::ApiGateway::Stage', {
       MethodSettings: [Match.objectLike({ ThrottlingRateLimit: 5, ThrottlingBurstLimit: 10 })],
     });
+  });
+
+  it('validates bodies at the gateway with exactly the schema the front door uses', () => {
+    const models = Object.values(authTemplate.findResources('AWS::ApiGateway::Model'));
+    expect(models).toHaveLength(1);
+    const model = z.object({ Properties: z.object({ Schema: z.unknown() }) }).parse(models[0]);
+    expect(model.Properties.Schema).toEqual(
+      z.toJSONSchema(chatRequestSchema, { target: 'draft-4' }),
+    );
   });
 
   it('lets the front door invoke this stage’s agents and nothing more', () => {
