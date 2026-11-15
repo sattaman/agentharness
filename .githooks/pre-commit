@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+pnpm -s format:check
+pnpm -s typecheck
+pnpm -s lint
+if command -v gitleaks >/dev/null; then
+  gitleaks git --pre-commit --staged --no-banner
+else
+  echo "gitleaks not installed; skipping leak scan" >&2
+fi

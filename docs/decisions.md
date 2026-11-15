@@ -173,7 +173,9 @@ docs/
 
 - `main` is protected. Work happens on short-lived branches: `feat/…`, `fix/…`, `docs/…`, `chore/…`.
 - PRs are squash-merged, so history is linear and each PR is one commit.
-- Conventional Commits, enforced on the PR title (which becomes the squash commit), not by local hooks.
+- Conventional Commits, enforced on the PR title (which becomes the squash commit).
+- A pre-commit hook (`.githooks/pre-commit`, installed by `pnpm install`) runs the format check, typecheck, lint with zero warnings, and gitleaks. CI runs the full `pnpm check`. The hook catches problems before they reach a commit, and CI catches anything committed with `--no-verify`.
+- `.vscode/settings.json` makes the editor use the workspace TypeScript, so editor diagnostics match the command line.
 - Releases are tags like `v0.1.0`.
 - Code comments are minimal. Names and structure explain the code; a comment is kept only for a non-obvious _why_.
 
@@ -196,6 +198,7 @@ docs/
   - Through `model.additionalParams`, a caller can send the model request, signed with the execution role's session credentials, to an endpoint they choose. So the role's credentials can leak.
   - One client can call every agent in its stage.
   - What _is_ enforced is the execution role, which is why it is kept tight. It can call the configured inference profile only (direct foundation-model calls require `bedrock:InferenceProfileArn`), can reach its own gateway only, and is denied `sts:AssumeRole`. Leaked credentials can do no more than that.
+  - **Verified live (2026-11-15):** with `allowedTools: ["*"]`, a token caller got the model to run shell commands as `uid=0(root)` with outbound HTTPS working. Overriding the model to another Bedrock model failed with `AccessDeniedException` from the execution role.
   - So tokens are for trusted maintainers. Before anyone untrusted gets access, a validating layer must sit in front of the Harness (plan §8).
 - **Cost.** About $0.002–0.003 per token request. The CLI reuses a token until a minute before it expires.
 - **Later:** one client per consumer (separate revocation and attribution) and per-agent scopes.
