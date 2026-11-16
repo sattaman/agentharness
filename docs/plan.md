@@ -80,12 +80,12 @@ See D12. Each concept gets one file in `packages/agentharness/src/` (for example
 
 ## 5. Testing strategy
 
-**Status (2026-11-15):** unit, synth and live tests are built. 68 run on every commit, and 10 live tests run with `pnpm smoke` against a deployed stage.
+**Status (2026-11-15):** unit, synth and live tests are built. 69 run in CI on every PR (and in `pnpm check`); the pre-commit hook runs the format check, typecheck, lint and gitleaks. 10 live tests run with `pnpm smoke` against a deployed stage.
 
 | Layer                   | What it proves                                                                                                                                                                                                                                                                                       | Where                        | AWS?             | Runs                                  |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | ---------------- | ------------------------------------- |
-| **Unit**                | Loader and schema rules; request rules (strict body, exact scope, current grants, sessions bound to the caller); spend maths; every front-door decision: rejection order, reserve and settle, failed or unmetered calls keeping the reservation, disconnects, no message in logs                     | `packages/agentharness/test` | No               | Every commit and PR                   |
-| **Synth**               | Resource shape and security properties: Harnesses without an authorizer, the front-door role's exact actions, per-agent scopes, streaming, a retained ledger, the fixed role name. cdk-nag has zero unjustified findings                                                                             | `stack.test.ts`              | No               | Every commit and PR                   |
+| **Unit**                | Loader and schema rules; request rules (strict body, exact scope, current grants, sessions bound to the caller); spend maths; every front-door decision: rejection order, reserve and settle, failed or unmetered calls keeping the reservation, disconnects, no message in logs                     | `packages/agentharness/test` | No               | Every PR, and `pnpm check`            |
+| **Synth**               | Resource shape and security properties: Harnesses without an authorizer, the front-door role's exact actions, per-agent scopes, streaming, a retained ledger, the fixed role name. cdk-nag has zero unjustified findings                                                                             | `stack.test.ts`              | No               | Every PR, and `pnpm check`            |
 | **Live**                | Answers from knowledge, with a `Retrieve` event; 401, 400 and 403 at the front door; a token sent straight to a Harness → 403; a model override denied by IAM; the ledger equal to the summed costs of concurrent calls; 429 one micro-dollar past the budget boundary; IAM simulation of both roles | `tools/smoke`                | Yes, about $0.01 | `pnpm smoke`; in CI after deploy (M6) |
 | **Adversarial** (to do) | A planted "ignore your instructions" document; the agent still answers and doesn't echo it                                                                                                                                                                                                           | `tools/smoke`                | Yes              | With smoke                            |
 | **Lifecycle** (to do)   | Edit or delete a knowledge file, then `sync` re-ingests it; a failed ingestion fails `sync` with the file name; `destroy` leaves nothing behind                                                                                                                                                      | Script                       | Yes              | Before M7                             |
@@ -237,7 +237,7 @@ The smoke test checks for facts, not exact wording. The golden fact is a made-up
 ## 9. Open questions
 
 1. ~~Name?~~ **Decided:** `agentharness` (D12).
-2. GitHub owner: a personal account (recommended for a portfolio) or a new org?
+2. ~~GitHub owner?~~ **Decided:** a personal account, `github.com/sattaman/agentharness` (public, Apache-2.0, `main` protected).
 3. ~~Teardown after every run or weekly?~~ **Proposed:** after every run, revisited with measured costs.
 4. ~~Manual approval or auto-deploy?~~ **Proposed:** manual approval first.
 5. Dedicated AWS account: **proposed** to create it before M5 (CI trust). Local development can stay in the current account until then, or move earlier if you prefer.

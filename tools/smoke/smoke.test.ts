@@ -189,7 +189,7 @@ describe('the Harness', () => {
         if (error) throw new Error(error.message);
       }
     };
-    await expect(attempt()).rejects.toThrow(/not authorized|AccessDenied/i);
+    await expect(attempt()).rejects.toThrow(/not authorized to perform: bedrock:InvokeModel/);
   });
 });
 

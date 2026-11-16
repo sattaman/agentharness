@@ -295,7 +295,9 @@ caller ──token──▶ API Gateway ──▶ Lambda ──SigV4──▶ Ha
   - Concurrent requests each hold their own reservation, so together they can't exceed the budget.
 - **Maximum cost of a call:** `maxIterations` × 64,000 input tokens, plus `2 × maxTokens` output tokens. The doubling allows for the final model call that crosses the token budget. For `helper` that is $0.14, against a typical call of $0.001–0.002.
   - The input allowance is an estimate, not an enforced limit. It holds because prompts are capped at 20,000 characters, messages at 10,000, and history at a 20-message window.
-  - If a call ever costs more than its reservation, it is still charged in full and logged with `overReservation: true`. So the cap can be exceeded by at most that one call's excess.
+  - If a call ever costs more than its reservation, it is still charged in full and logged with `overReservation: true`. So the cap can be exceeded by the combined excess of the calls in flight at that moment. The budget is therefore an enforced estimate, not a guarantee.
+  - `timeoutSeconds` is capped at 840 so the Lambda (900 s) always has time left to settle.
+  - Transaction idempotency tokens last 10 minutes, which covers the SDK's retries within one call.
 - **Fail safe:**
   - If the ledger is unavailable, the front door refuses with 503 instead of letting the call through.
   - If a stream fails, or ends without any usage events, the reservation stays charged.
