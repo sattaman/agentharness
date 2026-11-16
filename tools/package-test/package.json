@@ -1,0 +1,10 @@
+{
+  "name": "agentharness-package-test",
+  "private": true,
+  "description": "Packs agentharness, creates a starter from the tarball outside the workspace, installs it and synthesizes. Needs network, not AWS.",
+  "type": "module",
+  "scripts": {
+    "package-test": "node run.ts",
+    "typecheck": "tsc --noEmit"
+  }
+}

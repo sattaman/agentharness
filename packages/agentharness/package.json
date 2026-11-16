@@ -29,10 +29,10 @@
     "dist"
   ],
   "scripts": {
-    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && node bundle.mjs",
-    "bundle": "node bundle.mjs",
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && node assets.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node bundle.mjs && vitest run"
+    "test": "node assets.mjs && vitest run",
+    "assets": "node assets.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-agent": "3.1168.0",

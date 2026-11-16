@@ -18,18 +18,19 @@ agents/
 
 ## Quick start
 
-Needs Node 24, pnpm (`corepack enable`), and an AWS account prepared as in [docs/setup.md](docs/setup.md).
+Needs Node 24, the AWS CLI signed in to an AWS account, and a Region with AgentCore (tested in `eu-west-2`).
 
 ```bash
-pnpm install && pnpm build
-cd examples/helper
-pnpm run deploy            # deploy both stacks, then load knowledge/ into the knowledge base
-pnpm destroy               # remove the agents (access and spend records stay)
+npx agentharness init my-agents
+cd my-agents
+npm install
+npx cdk bootstrap      # once per AWS account and Region
+npm run deploy         # deploy the agents and their API, then load the knowledge base
 ```
 
-`pnpm deploy` is a pnpm built-in, hence `pnpm run deploy`. The default stage is `dev`. For another stage, run `pnpm exec cdk deploy --all -c stage=<name>`, then `pnpm sync --stage <name>`.
+The starter's README shows how to get a token and call your agent, and how to make the agent your own. It's the same as [examples/helper/README.md](examples/helper/README.md).
 
-The kit provides the API; it has no chat client. To try an agent, see [Test an agent](#test-an-agent).
+> Until the first npm release, use the example in this repo instead: `pnpm install && pnpm build`, then `cd examples/helper && pnpm run deploy`.
 
 ## Define an agent
 
@@ -238,18 +239,18 @@ It needs AWS credentials and costs about a cent per run.
 
 Inside `packages/agentharness/src/`:
 
-| File                                   | Concept                                                                  |
-| -------------------------------------- | ------------------------------------------------------------------------ |
-| `schema.ts`, `load.ts`                 | The conventions: file schemas, model prices, loading and validation      |
-| `agent.ts`, `knowledge.ts`             | One Harness and its execution role; one knowledge base and gateway       |
-| `auth.ts`, `api.ts`                    | Cognito callers and scopes; the front door (API Gateway, Lambda, ledger) |
-| `request.ts`, `serve.ts`, `handler.ts` | Front-door rules and decisions (unit-tested); the Lambda's AWS wiring    |
-| `spend.ts`, `ledger.ts`                | Call cost and reservations (pure); the DynamoDB spend ledger             |
-| `reply.ts`                             | The streamed reply format, shared by the Lambda and the CLI              |
-| `stack.ts`, `app.ts`                   | The two stacks per stage, and the CDK app with cdk-nag                   |
-| `iam.ts`, `names.ts`                   | Roles with explained permissions; resource names                         |
-| `cli.ts`, `sync.ts`, `deployment.ts`   | The `agentharness` command line: `synth` and `sync`                      |
-| `contract.ts`                          | The API's request and reply formats, exported as `agentharness/contract` |
+| File                                            | Concept                                                                  |
+| ----------------------------------------------- | ------------------------------------------------------------------------ |
+| `schema.ts`, `load.ts`                          | The conventions: file schemas, model prices, loading and validation      |
+| `agent.ts`, `knowledge.ts`                      | One Harness and its execution role; one knowledge base and gateway       |
+| `auth.ts`, `api.ts`                             | Cognito callers and scopes; the front door (API Gateway, Lambda, ledger) |
+| `request.ts`, `serve.ts`, `handler.ts`          | Front-door rules and decisions (unit-tested); the Lambda's AWS wiring    |
+| `spend.ts`, `ledger.ts`                         | Call cost and reservations (pure); the DynamoDB spend ledger             |
+| `reply.ts`                                      | The streamed reply format, shared by the Lambda and the CLI              |
+| `stack.ts`, `app.ts`                            | The two stacks per stage, and the CDK app with cdk-nag                   |
+| `iam.ts`, `names.ts`                            | Roles with explained permissions; resource names                         |
+| `cli.ts`, `init.ts`, `sync.ts`, `deployment.ts` | The `agentharness` command line: `init`, `synth` and `sync`              |
+| `contract.ts`                                   | The API's request and reply formats, exported as `agentharness/contract` |
 
 ## Develop
 
