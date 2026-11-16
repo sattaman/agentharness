@@ -16,12 +16,14 @@ export async function* ask(
   for await (const line of lines(response.body)) yield replySchema.parse(JSON.parse(line));
 }
 
-async function* lines(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+export async function* lines(body: AsyncIterable<Uint8Array>): AsyncGenerator<string> {
+  const decoder = new TextDecoder();
   let buffer = '';
-  for await (const chunk of body.pipeThrough(new TextDecoderStream())) {
-    const parts = (buffer + chunk).split('\n');
+  for await (const chunk of body) {
+    const parts = (buffer + decoder.decode(chunk, { stream: true })).split('\n');
     buffer = parts.pop() ?? '';
     yield* parts.filter((part) => part !== '');
   }
+  buffer += decoder.decode();
   if (buffer !== '') yield buffer;
 }

@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "start": "node chat.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "agentharness": "workspace:*"
