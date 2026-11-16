@@ -15,7 +15,8 @@
     "check": "pnpm format:check && pnpm build && pnpm typecheck && pnpm lint && pnpm test",
     "postinstall": "git config core.hooksPath .githooks",
     "chat": "pnpm --dir tools/chat start",
-    "smoke": "pnpm --dir tools/smoke smoke"
+    "smoke": "pnpm --dir tools/smoke smoke",
+    "test:package": "pnpm --dir tools/package-test package-test"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

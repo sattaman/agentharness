@@ -168,6 +168,7 @@ docs/
 
 - The example depends on `"agentharness": "workspace:*"`, so it can only use the published API.
 - **Users write no code.** Their repo holds `agents/<name>/`, `package.json` and a `cdk.json` containing `{ "app": "npx agentharness synth" }`. The exported construct is available for adding agents to an existing CDK app.
+- **`agentharness init <dir>` creates a starter repo.** The template is `examples/helper`, copied into the package at build time (`dist/template`), so the example and the starter can't drift. A CI job packs the package, runs `init` from the tarball outside the workspace, installs and synthesizes, so what ships is what's tested.
 - **The package provides the API, not clients.** Talking to an agent is a separate concern. The package exports the API's request and reply formats as `agentharness/contract`. Clients, including our own test client in `tools/chat`, use only the HTTP API. Getting a token is a manual step for maintainers (README, "Test an agent").
 - **Agent folder:** `agent.json` + `prompt.md` + `knowledge/`. JSON with no `$schema` line. Editors get the schema through `.vscode/settings.json` `json.schemas` (later through SchemaStore). The CLI validates against the same zod schema either way.
 - **Resource names:** stacks `agentharness-<stage>-auth` and `agentharness-<stage>-agents`; resources `agentharness-<stage>-<agent>-*`; AgentCore Harness `agentharness_<stage>_<agent>`. Tags: `project`, `stage`, `agent`.
