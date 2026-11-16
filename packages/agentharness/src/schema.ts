@@ -33,7 +33,7 @@ export const agentConfigSchema = z.strictObject({
   model: z.enum(modelNames),
   maxTokens: z.int().min(1).max(8192).default(1024),
   maxIterations: z.int().min(1).max(20).default(5),
-  timeoutSeconds: z.int().min(10).max(900).default(120),
+  timeoutSeconds: z.int().min(10).max(840).default(120),
   callers: z.array(nameSchema).default([]),
 });
 

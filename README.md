@@ -46,7 +46,7 @@ The folder name is the agent's name: 1–16 lowercase letters or digits, startin
 | `model`          | The model. Currently `nova-2-lite` (Amazon Nova 2 Lite)       | —       | required       |
 | `maxTokens`      | Output tokens per call, across all of the agent's model calls | 1024    | 1–8192         |
 | `maxIterations`  | Reasoning or tool steps per call                              | 5       | 1–20           |
-| `timeoutSeconds` | Time limit per call                                           | 120     | 10–900         |
+| `timeoutSeconds` | Time limit per call                                           | 120     | 10–840         |
 | `callers`        | Teams allowed to call this agent, besides `maintainers`       | `[]`    | names as above |
 
 **`prompt.md`**: the system prompt, up to 20,000 characters.
@@ -175,7 +175,7 @@ AgentCore lets anyone who can call a Harness override its model, prompt and tool
 **About budgets:**
 
 - Budgets cover estimated **model** spend.
-- Before each call, the front door reserves the call's maximum cost, so concurrent calls can't overrun a budget together.
+- Before each call, the front door reserves an estimate of the call's maximum cost, so concurrent calls can't overrun a budget together as long as each stays within its estimate. A call that costs more is still charged in full and logged (`overReservation`); calls in flight at the same time can each go over in this way.
 - Other charges, such as runtime, knowledge base and logs, are kept small by session limits and teardown, and appear in Cost Explorer by tag.
 
 **Known limits:**
