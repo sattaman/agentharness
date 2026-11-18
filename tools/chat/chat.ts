@@ -38,6 +38,11 @@ function show(reply: Reply): void {
     case 'tool':
       console.log(`\n[using ${reply.name}]`);
       return;
+    case 'toolInput':
+      return;
+    case 'toolResult':
+      console.log(`[tool ${reply.status}]`);
+      return;
     case 'stopped':
       console.log(`\n[stopped: ${reply.reason}]`);
       return;
