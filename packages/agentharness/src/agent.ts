@@ -1,6 +1,7 @@
 import { CfnHarness, type CfnHarnessProps } from 'aws-cdk-lib/aws-bedrockagentcore';
 import { Effect } from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
+import { Gateway } from './gateway.js';
 import { arn, fromThisAccount, serviceRole, type Permission } from './iam.js';
 import { Knowledge } from './knowledge.js';
 import type { AgentSpec } from './load.js';
@@ -15,15 +16,17 @@ export interface AgentProps {
 export class Agent extends Construct {
   readonly harness: CfnHarness;
   readonly knowledge: Knowledge | undefined;
+  readonly gateway: Gateway | undefined;
 
   constructor(scope: Construct, id: string, { spec, stage }: AgentProps) {
     super(scope, id);
     const harnessName = nameOf(stage, spec.name);
     const model = models[spec.config.model];
-    this.knowledge = spec.knowledge
-      ? new Knowledge(this, 'Knowledge', { name: `agentharness-${stage}-${spec.name}` })
-      : undefined;
-    const gatewayArn = this.knowledge?.gateway.attrGatewayArn;
+    const name = `agentharness-${stage}-${spec.name}`;
+    this.knowledge = spec.knowledge ? new Knowledge(this, 'Knowledge', { name }) : undefined;
+    const tools = this.knowledge === undefined ? [] : [this.knowledge.tool];
+    this.gateway = tools.length > 0 ? new Gateway(this, 'Gateway', { name, tools }) : undefined;
+    const gatewayArn = this.gateway?.resource.attrGatewayArn;
 
     const inferenceProfile = arn('bedrock', `inference-profile/${model.modelId}`);
     const role = serviceRole(
@@ -95,7 +98,7 @@ export class Agent extends Construct {
             ),
           ],
         },
-        ...(gatewayArn === undefined ? [] : [searchKnowledge(gatewayArn)]),
+        ...(gatewayArn === undefined ? [] : [useGateway(gatewayArn)]),
       ],
     );
 
@@ -125,7 +128,9 @@ export class Agent extends Construct {
   }
 }
 
-const knowledgeTool = 'knowledge';
+// The Harness's name for the agent's Gateway. `@tools` admits every target behind it,
+// which are exactly the ones the agent's config enables.
+const gatewayTool = 'tools';
 
 function toolsFor(gatewayArn: string | undefined): Pick<CfnHarnessProps, 'tools' | 'allowedTools'> {
   if (gatewayArn === undefined) return { tools: [], allowedTools: [] };
@@ -133,16 +138,16 @@ function toolsFor(gatewayArn: string | undefined): Pick<CfnHarnessProps, 'tools'
     tools: [
       {
         type: 'agentcore_gateway',
-        name: knowledgeTool,
+        name: gatewayTool,
         config: { agentCoreGateway: { gatewayArn, outboundAuth: { awsIam: {} } } },
       },
     ],
-    allowedTools: [`@${knowledgeTool}`],
+    allowedTools: [`@${gatewayTool}`],
   };
 }
 
-const searchKnowledge = (gatewayArn: string): Permission => ({
-  why: 'Search this agent’s knowledge through its own gateway.',
+const useGateway = (gatewayArn: string): Permission => ({
+  why: 'Use the tools behind this agent’s own gateway.',
   actions: ['bedrock-agentcore:InvokeGateway'],
   resources: [gatewayArn],
 });

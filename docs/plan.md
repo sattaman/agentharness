@@ -362,6 +362,8 @@ Status: **proposed**, not agreed. Built from a review of the core team's tenant 
 
 - **P1 done (2026-11-18)** on `feat/tool-call-contract`. Recorded a live stream (`test/fixtures/streams/retrieve.jsonl`, via `pnpm --dir tools/smoke record`), which confirmed the shape above. New replies: `tool` gains `id`; `toolInput` streams argument fragments; `toolResult` carries `status`, and `content` only for tools marked as shared, because the knowledge tool's raw result includes bucket names and S3 URIs. Live smoke passes against the redeployed front door.
 
+- **P2 done (2026-11-18)** on `feat/gateway-construct`: the Gateway is its own construct with one target per capability; the Harness tool is now `tools` (`@tools`). Recorded in D6, including the one-off destroy that the logical-ID change needs.
+
 ### One-off account setup (for `setup.md`)
 
 - The billing owner turns on Cost Explorer, activates the cost allocation tag, and creates or shares the filtered billing view.

@@ -88,9 +88,11 @@ CDK, scripts and any future runtime code are all TypeScript, so there is one too
 
 - The S3 connector requires `bucketOwnerAccountId`, even for a bucket in the same account.
 - The KB role needs only `s3:ListBucket` and `s3:GetObject`; managed embeddings need no `bedrock:InvokeModel`.
-- `allowedTools: ['@knowledge']` admits the Gateway's tools; the stream names the tool `knowledge___Retrieve`.
+- `allowedTools: ['@knowledge']` admits the Gateway's tools; the stream names the tool `knowledge___Retrieve`, after the Gateway target.
 - Timings: deploy about 100s, first `sync` about 2.5 minutes, rollback or teardown about 12 minutes (Bedrock deletes the data source slowly).
 - The bucket empties itself on delete (`autoDeleteObjects`, CDK's own small Lambda), so nightly teardown doesn't fail on a non-empty bucket. Data-source deletion protection is off, so `sync` deletions always apply; git review guards what is removed.
+
+**One Gateway per agent, shared by its tools (2026-11-18):** the Gateway is its own construct (`gateway.ts`), created when an agent has knowledge or any Gateway tool. Each capability brings a target and the permissions the Gateway's role needs for it. The Harness attaches the Gateway as one tool named `tools`, with `allowedTools: ['@tools']`, which admits exactly the targets the agent's config enables; tool names in the stream still come from the target (`knowledge___Retrieve`). Moving the Gateway changed its logical ID, and a replacement Gateway with the same name fails with 409 `AlreadyExists`, so a stage deployed before this change must be destroyed once (or left to the nightly cleanup) before redeploying.
 
 ## D7 — CDK library: plain aws-cdk-lib
 
