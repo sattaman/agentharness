@@ -6,7 +6,13 @@ import type {
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { repliesFrom, replySchema, type Reply, type ReplyOptions } from '../src/reply.js';
+import {
+  maxResultBytes,
+  repliesFrom,
+  replySchema,
+  type Reply,
+  type ReplyOptions,
+} from '../src/reply.js';
 
 type Event = InvokeHarnessStreamOutput;
 
@@ -30,7 +36,7 @@ const toolUseId = 'tooluse_C537IO8gfVx6vIovMZQpWZ';
 const tool = 'knowledge___Retrieve';
 
 describe('repliesFrom on a recorded tool call', () => {
-  it('reports the call, its input and its result, matched by the tool-use ID', async () => {
+  it('reports the call, its input, its end and its result, matched by the tool-use ID', async () => {
     const out = await replies(recorded);
     expect(out.filter((reply) => reply.type.startsWith('tool'))).toEqual([
       { type: 'tool', id: toolUseId, name: tool },
@@ -39,6 +45,7 @@ describe('repliesFrom on a recorded tool call', () => {
         id: toolUseId,
         delta: '{"retrievalQuery":{"text":"What is the office plant called?"}}',
       },
+      { type: 'toolEnd', id: toolUseId },
       { type: 'toolResult', id: toolUseId, status: 'success' },
     ]);
   });
@@ -91,7 +98,7 @@ describe('repliesFrom on tool edge cases', () => {
   const start = (role: 'assistant' | 'user'): Event => ({ messageStart: { role } });
   const shared = { sharesResult: () => true };
 
-  it('forwards input fragments in order and ties parallel calls to their own IDs', async () => {
+  it('forwards input fragments in order, ties parallel calls to their IDs and ends each', async () => {
     const out = await replies([
       start('assistant'),
       use(0, 'a', 'costs___get_costs'),
@@ -108,6 +115,8 @@ describe('repliesFrom on tool edge cases', () => {
       { type: 'tool', id: 'b', name: 'costs___get_costs' },
       { type: 'toolInput', id: 'b', delta: '{}' },
       { type: 'toolInput', id: 'a', delta: '"2026-11-01"}' },
+      { type: 'toolEnd', id: 'a' },
+      { type: 'toolEnd', id: 'b' },
     ]);
   });
 
@@ -132,7 +141,7 @@ describe('repliesFrom on tool edge cases', () => {
     });
   });
 
-  it('passes JSON parts through, keeps non-JSON text as text, and reports errors', async () => {
+  it('passes JSON parts through, keeps non-JSON text as text, and withholds errors', async () => {
     const out = await replies(
       [
         use(0, 'a', 'x'),
@@ -141,14 +150,73 @@ describe('repliesFrom on tool edge cases', () => {
         resultPart(0, { json: { rows: [1, 2] } }),
         stop(0),
         resultStart(1, 'b', 'error'),
-        resultPart(1, { text: 'Access denied' }),
+        resultPart(1, {
+          text: 'Role example-role is not authorized to perform ce:GetCostAndUsage',
+        }),
         stop(1),
+        use(2, 'c', 'z'),
+        resultStart(2, 'c', 'success'),
+        resultPart(2, { text: 'plain words' }),
+        stop(2),
       ],
       shared,
     );
     expect(out.filter((reply) => reply.type === 'toolResult')).toEqual([
       { type: 'toolResult', id: 'a', status: 'success', content: { rows: [1, 2] } },
-      { type: 'toolResult', id: 'b', status: 'error', content: 'Access denied' },
+      { type: 'toolResult', id: 'b', status: 'error' },
+      { type: 'toolResult', id: 'c', status: 'success', content: 'plain words' },
     ]);
+  });
+
+  it('treats any status other than success as an error', async () => {
+    const odd: Event = {
+      contentBlockStart: {
+        contentBlockIndex: 1,
+        start: { toolResult: { toolUseId: 'a', status: undefined } },
+      },
+    };
+    const out = await replies(
+      [use(0, 'a', 'x'), odd, resultPart(1, { text: 'x' }), stop(1)],
+      shared,
+    );
+    expect(out.at(-1)).toEqual({ type: 'toolResult', id: 'a', status: 'error' });
+  });
+
+  it('skips tool blocks without an ID instead of mixing them up', async () => {
+    const out = await replies(
+      [use(0, '', 'x'), input(0, '{}'), stop(0), resultStart(1, '', 'success'), stop(1)],
+      shared,
+    );
+    expect(out).toEqual([]);
+  });
+
+  it('asks about sharing only for tools it saw called', async () => {
+    const asked: string[] = [];
+    const out = await replies(
+      [resultStart(0, 'unknown', 'success'), resultPart(0, { text: 'secret' }), stop(0)],
+      {
+        sharesResult: (name) => {
+          asked.push(name);
+          return true;
+        },
+      },
+    );
+    expect(asked).toEqual([]);
+    expect(out).toEqual([{ type: 'toolResult', id: 'unknown', status: 'success' }]);
+  });
+
+  it('withholds a shared result that is too large, and says so', async () => {
+    const big = 'x'.repeat(maxResultBytes);
+    const out = await replies(
+      [
+        use(0, 'a', 'x'),
+        resultStart(1, 'a', 'success'),
+        resultPart(1, { text: big }),
+        resultPart(1, { text: big }),
+        stop(1),
+      ],
+      shared,
+    );
+    expect(out.at(-1)).toEqual({ type: 'toolResult', id: 'a', status: 'success', tooLarge: true });
   });
 });

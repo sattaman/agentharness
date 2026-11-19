@@ -39,6 +39,7 @@ function show(reply: Reply): void {
       console.log(`\n[using ${reply.name}]`);
       return;
     case 'toolInput':
+    case 'toolEnd':
       return;
     case 'toolResult':
       console.log(`[tool ${reply.status}]`);
