@@ -110,7 +110,7 @@
       ]
     },
     {
-      "Sid": "HandsOffOtherProjectAiDigest",
+      "Sid": "HandsOffOtherWorkloads",
       "Effect": "Deny",
       "Action": ["dynamodb:*", "s3:*"],
       "Resource": [
