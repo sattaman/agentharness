@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "smoke": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "record": "node record.ts"
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-agentcore": "3.1168.0",

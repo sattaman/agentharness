@@ -223,6 +223,37 @@ describe('AgentsStack', () => {
 });
 
 describe('AuthStack', () => {
+  // The nightly cleanup deletes only the agents stack, so anything that bills while idle
+  // must live there. Each type here costs nothing until it is used, apart from a few
+  // cents of storage (checked against the AWS Price List, 2026-11-18). Before adding a
+  // type, check that it is free when idle; otherwise put it in the agents stack.
+  it('contains only resources that cost nothing while idle', () => {
+    const freeWhenIdle = new Set([
+      'AWS::ApiGateway::Authorizer',
+      'AWS::ApiGateway::Deployment',
+      'AWS::ApiGateway::Method',
+      'AWS::ApiGateway::Model',
+      'AWS::ApiGateway::RequestValidator',
+      'AWS::ApiGateway::Resource',
+      'AWS::ApiGateway::RestApi',
+      'AWS::ApiGateway::Stage',
+      'AWS::CDK::Metadata',
+      'AWS::Cognito::UserPool',
+      'AWS::Cognito::UserPoolClient', // M2M app clients: $0; token requests are billed
+      'AWS::Cognito::UserPoolResourceServer',
+      'AWS::DynamoDB::Table', // on demand: storage only
+      'AWS::IAM::Role',
+      'AWS::Lambda::Function',
+      'AWS::Lambda::Permission',
+      'AWS::Logs::LogGroup', // storage only
+    ]);
+    const { Resources } = z
+      .object({ Resources: z.record(z.string(), z.object({ Type: z.string() })) })
+      .parse(authTemplate.toJSON());
+    const types = Object.values(Resources).map(({ Type }) => Type);
+    expect(types.filter((type) => !freeWhenIdle.has(type))).toEqual([]);
+  });
+
   it('defines one scope per agent', () => {
     authTemplate.hasResourceProperties('AWS::Cognito::UserPoolResourceServer', {
       Identifier: 'agentharness',
