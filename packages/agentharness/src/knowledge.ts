@@ -79,6 +79,7 @@ export class Knowledge extends Construct {
 
     this.tool = {
       name: 'knowledge',
+      tools: ['Retrieve'],
       targetConfiguration: {
         mcp: {
           connector: {

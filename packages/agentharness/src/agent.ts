@@ -1,7 +1,7 @@
 import { CfnHarness, type CfnHarnessProps } from 'aws-cdk-lib/aws-bedrockagentcore';
 import { Effect } from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
-import { Gateway } from './gateway.js';
+import { Gateway, type GatewayTool } from './gateway.js';
 import { arn, fromThisAccount, serviceRole, type Permission } from './iam.js';
 import { Knowledge } from './knowledge.js';
 import type { AgentSpec } from './load.js';
@@ -113,7 +113,7 @@ export class Agent extends Construct {
         },
       },
       systemPrompt: [{ text: spec.prompt }],
-      ...toolsFor(gatewayArn),
+      ...toolsFor(gatewayArn, tools),
       memory: { disabled: {} },
       truncation: { strategy: 'sliding_window', config: { slidingWindow: { messagesCount: 20 } } },
       maxIterations: spec.config.maxIterations,
@@ -125,14 +125,22 @@ export class Agent extends Construct {
         },
       },
     });
+    // Its tools must be registered before the Harness can use them, not just the Gateway.
+    if (this.gateway !== undefined) this.harness.node.addDependency(this.gateway);
   }
 }
 
-// The Harness's name for the agent's Gateway. `@tools` admits every target behind it,
-// which are exactly the ones the agent's config enables.
+// The Harness's name for the agent's Gateway.
 const gatewayTool = 'tools';
 
-function toolsFor(gatewayArn: string | undefined): Pick<CfnHarnessProps, 'tools' | 'allowedTools'> {
+/**
+ * The Gateway as one Harness tool, and each of its tools allowed by name
+ * (`@tools/knowledge___Retrieve`), so a tool a target gains later is not admitted on its own.
+ */
+function toolsFor(
+  gatewayArn: string | undefined,
+  tools: readonly GatewayTool[],
+): Pick<CfnHarnessProps, 'tools' | 'allowedTools'> {
   if (gatewayArn === undefined) return { tools: [], allowedTools: [] };
   return {
     tools: [
@@ -142,7 +150,9 @@ function toolsFor(gatewayArn: string | undefined): Pick<CfnHarnessProps, 'tools'
         config: { agentCoreGateway: { gatewayArn, outboundAuth: { awsIam: {} } } },
       },
     ],
-    allowedTools: [`@${gatewayTool}`],
+    allowedTools: tools.flatMap(({ name, tools: names }) =>
+      names.map((tool) => `@${gatewayTool}/${name}___${tool}`),
+    ),
   };
 }
 

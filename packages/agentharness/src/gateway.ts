@@ -10,6 +10,8 @@ import { fromThisAccount, serviceRole, type Permission } from './iam.js';
 export interface GatewayTool {
   /** The target name. The agent sees the target's tools as `<name>___<tool>`. */
   readonly name: string;
+  /** The tools this target offers that the agent may call, without the target prefix. */
+  readonly tools: readonly string[];
   readonly targetConfiguration: CfnGatewayTargetProps['targetConfiguration'];
   /** What the Gateway's role needs to reach this target, and nothing more. */
   readonly permissions: readonly Permission[];

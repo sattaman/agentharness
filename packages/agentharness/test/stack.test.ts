@@ -77,7 +77,7 @@ describe('AgentsStack', () => {
       HarnessName: 'agentharness_test_helper',
       Model: { BedrockModelConfig: { ModelId: 'global.amazon.nova-2-lite-v1:0', MaxTokens: 512 } },
       SystemPrompt: [{ Text: 'You are a test agent.' }],
-      AllowedTools: ['@tools'],
+      AllowedTools: ['@tools/knowledge___Retrieve'],
       Memory: { Disabled: {} },
       Truncation: { Strategy: 'sliding_window', Config: { SlidingWindow: { MessagesCount: 20 } } },
       MaxIterations: 3,
@@ -176,6 +176,16 @@ describe('AgentsStack', () => {
         Resource: { 'Fn::GetAtt': [expect.stringMatching(/^helperGateway/), 'GatewayArn'] },
       }),
     ]);
+  });
+
+  it('creates the harness only after its gateway targets', () => {
+    const [harness] = Object.values(
+      template.findResources('AWS::BedrockAgentCore::Harness', {
+        Properties: { HarnessName: 'agentharness_test_helper' },
+      }),
+    );
+    const [target] = Object.keys(template.findResources('AWS::BedrockAgentCore::GatewayTarget'));
+    expect(harness?.['DependsOn']).toEqual(expect.arrayContaining([target]));
   });
 
   it('keeps the knowledge bucket private', () => {
