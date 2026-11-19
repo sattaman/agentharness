@@ -224,8 +224,8 @@ importers:
   packages/agentharness:
     dependencies:
       '@aws-sdk/client-bedrock-agent':
-        specifier: 3.1168.0
-        version: 3.1168.0
+        specifier: 3.1169.0
+        version: 3.1169.0
       '@aws-sdk/client-bedrock-agentcore':
         specifier: 3.1168.0
         version: 3.1168.0
@@ -260,6 +260,8 @@ importers:
       agentharness:
         specifier: workspace:*
         version: link:../../packages/agentharness
+
+  tools/package-test: {}
 
   tools/smoke:
     dependencies:
@@ -304,8 +306,8 @@ packages:
     resolution: {integrity: sha512-OHlfkNzDFjYnwNPABhwAkDTUi0HPjfsKUHJDR0bSMORpCXNzRpInPCNCIT08xKDhjaPlcLJ+2Av+Sk7hHnuC8A==}
     engines: {node: '>=20.0.0'}
 
-  '@aws-sdk/client-bedrock-agent@3.1168.0':
-    resolution: {integrity: sha512-HxNZrMERFjJPvgHLw4FXmymokq3yV8k3Qi/QQLUaIs+Oh9X5KlqOuLNGf3p4+WKOXOMBoaf5EF097gg4/WL6rA==}
+  '@aws-sdk/client-bedrock-agent@3.1169.0':
+    resolution: {integrity: sha512-dZ04SnOFsGDyMXo3TuSCqvW9tGjrgfHcY3aVgvFtyIvV/HlGKgAeysQ0/j8zMmOfs2dQzFoZWZCREzfkfVUQ3g==}
     engines: {node: '>=20.0.0'}
 
   '@aws-sdk/client-bedrock-agentcore@3.1168.0':
@@ -1473,7 +1475,7 @@ snapshots:
       '@smithy/types': 4.20.0
       tslib: 2.9.1
 
-  '@aws-sdk/client-bedrock-agent@3.1168.0':
+  '@aws-sdk/client-bedrock-agent@3.1169.0':
     dependencies:
       '@aws-sdk/core': 3.981.0
       '@aws-sdk/credential-provider-node': 3.972.97
