@@ -77,7 +77,7 @@ describe('AgentsStack', () => {
       HarnessName: 'agentharness_test_helper',
       Model: { BedrockModelConfig: { ModelId: 'global.amazon.nova-2-lite-v1:0', MaxTokens: 512 } },
       SystemPrompt: [{ Text: 'You are a test agent.' }],
-      AllowedTools: ['@knowledge'],
+      AllowedTools: ['@tools/knowledge___Retrieve'],
       Memory: { Disabled: {} },
       Truncation: { Strategy: 'sliding_window', Config: { SlidingWindow: { MessagesCount: 20 } } },
       MaxIterations: 3,
@@ -141,6 +141,7 @@ describe('AgentsStack', () => {
       ProtocolType: 'MCP',
     });
     template.hasResourceProperties('AWS::BedrockAgentCore::GatewayTarget', {
+      Name: 'knowledge',
       TargetConfiguration: {
         Mcp: {
           Connector: {
@@ -156,13 +157,35 @@ describe('AgentsStack', () => {
       Tools: [
         {
           Type: 'agentcore_gateway',
-          Name: 'knowledge',
+          Name: 'tools',
           Config: {
             AgentCoreGateway: { GatewayArn: Match.anyValue(), OutboundAuth: { AwsIam: {} } },
           },
         },
       ],
     });
+  });
+
+  it('gives each gateway one target per enabled capability, and the harness only that gateway', () => {
+    template.resourceCountIs('AWS::BedrockAgentCore::GatewayTarget', 1);
+    const invokes = statementsOf('bedrock-agentcore.amazonaws.com').filter(({ Action }) =>
+      [Action].flat().includes('bedrock-agentcore:InvokeGateway'),
+    );
+    expect(invokes).toEqual([
+      expect.objectContaining({
+        Resource: { 'Fn::GetAtt': [expect.stringMatching(/^helperGateway/), 'GatewayArn'] },
+      }),
+    ]);
+  });
+
+  it('creates the harness only after its gateway targets', () => {
+    const [harness] = Object.values(
+      template.findResources('AWS::BedrockAgentCore::Harness', {
+        Properties: { HarnessName: 'agentharness_test_helper' },
+      }),
+    );
+    const [target] = Object.keys(template.findResources('AWS::BedrockAgentCore::GatewayTarget'));
+    expect(harness?.['DependsOn']).toEqual(expect.arrayContaining([target]));
   });
 
   it('keeps the knowledge bucket private', () => {
@@ -223,6 +246,37 @@ describe('AgentsStack', () => {
 });
 
 describe('AuthStack', () => {
+  // The nightly cleanup deletes only the agents stack, so anything that bills while idle
+  // must live there. Each type here costs nothing until it is used, apart from a few
+  // cents of storage (checked against the AWS Price List, 2026-11-18). Before adding a
+  // type, check that it is free when idle; otherwise put it in the agents stack.
+  it('contains only resources that cost nothing while idle', () => {
+    const freeWhenIdle = new Set([
+      'AWS::ApiGateway::Authorizer',
+      'AWS::ApiGateway::Deployment',
+      'AWS::ApiGateway::Method',
+      'AWS::ApiGateway::Model',
+      'AWS::ApiGateway::RequestValidator',
+      'AWS::ApiGateway::Resource',
+      'AWS::ApiGateway::RestApi',
+      'AWS::ApiGateway::Stage',
+      'AWS::CDK::Metadata',
+      'AWS::Cognito::UserPool',
+      'AWS::Cognito::UserPoolClient', // M2M app clients: $0; token requests are billed
+      'AWS::Cognito::UserPoolResourceServer',
+      'AWS::DynamoDB::Table', // on demand: storage only
+      'AWS::IAM::Role',
+      'AWS::Lambda::Function',
+      'AWS::Lambda::Permission',
+      'AWS::Logs::LogGroup', // storage only
+    ]);
+    const { Resources } = z
+      .object({ Resources: z.record(z.string(), z.object({ Type: z.string() })) })
+      .parse(authTemplate.toJSON());
+    const types = Object.values(Resources).map(({ Type }) => Type);
+    expect(types.filter((type) => !freeWhenIdle.has(type))).toEqual([]);
+  });
+
   it('defines one scope per agent', () => {
     authTemplate.hasResourceProperties('AWS::Cognito::UserPoolResourceServer', {
       Identifier: 'agentharness',
