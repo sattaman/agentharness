@@ -104,9 +104,12 @@ export async function serve(call: Call, door: FrontDoor): Promise<Summary> {
     if (delivering) await send({ type: 'error', message: 'The agent failed. Try again.' });
   }
 
+  // A failed call keeps its reservation, since usage may be missing, but never costs
+  // less than the usage it did report.
   const settled = complete && metered;
-  const charged = settled ? costMicros(limits.model, usage) : reserved;
-  let accounting = settled ? 'settled' : 'reservation kept';
+  const used = costMicros(limits.model, usage);
+  const charged = settled ? used : Math.max(reserved, used);
+  let accounting = settled ? 'settled' : charged > reserved ? 'reported usage' : 'reservation kept';
   try {
     await door.settle(key, charged - reserved, ledgerId);
   } catch (error) {

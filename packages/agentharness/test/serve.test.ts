@@ -181,6 +181,26 @@ describe('serve: a call', () => {
     expect(summary).toMatchObject({ outcome: 'failed', accounting: 'reservation kept' });
   });
 
+  it('charges reported usage over the reservation when the agent fails part-way', async () => {
+    const big = { ...usage, inputTokens: 5_000_000 };
+    const f = fake({
+      replies: async function* () {
+        yield { type: 'usage', ...big };
+        await Promise.resolve();
+        throw new Error('stream broke');
+      },
+    });
+    const over = costMicros('nova-2-lite', big);
+    expect(over).toBeGreaterThan(reserved);
+    const summary = await serve(call(ask), f.door);
+    expect(f.settles).toEqual([['support#2026-11', over - reserved, 'ledger-1']]);
+    expect(summary).toMatchObject({
+      outcome: 'failed',
+      accounting: 'reported usage',
+      overReservation: true,
+    });
+  });
+
   it('keeps the reservation when no usage was reported', async () => {
     const f = fake({
       replies: async function* () {
