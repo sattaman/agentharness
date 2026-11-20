@@ -77,7 +77,7 @@ describe('AgentsStack', () => {
       HarnessName: 'agentharness_test_helper',
       Model: { BedrockModelConfig: { ModelId: 'global.amazon.nova-2-lite-v1:0', MaxTokens: 512 } },
       SystemPrompt: [{ Text: 'You are a test agent.' }],
-      AllowedTools: ['@knowledge'],
+      AllowedTools: ['@tools/knowledge___Retrieve'],
       Memory: { Disabled: {} },
       Truncation: { Strategy: 'sliding_window', Config: { SlidingWindow: { MessagesCount: 20 } } },
       MaxIterations: 3,
@@ -141,6 +141,7 @@ describe('AgentsStack', () => {
       ProtocolType: 'MCP',
     });
     template.hasResourceProperties('AWS::BedrockAgentCore::GatewayTarget', {
+      Name: 'knowledge',
       TargetConfiguration: {
         Mcp: {
           Connector: {
@@ -156,13 +157,35 @@ describe('AgentsStack', () => {
       Tools: [
         {
           Type: 'agentcore_gateway',
-          Name: 'knowledge',
+          Name: 'tools',
           Config: {
             AgentCoreGateway: { GatewayArn: Match.anyValue(), OutboundAuth: { AwsIam: {} } },
           },
         },
       ],
     });
+  });
+
+  it('gives each gateway one target per enabled capability, and the harness only that gateway', () => {
+    template.resourceCountIs('AWS::BedrockAgentCore::GatewayTarget', 1);
+    const invokes = statementsOf('bedrock-agentcore.amazonaws.com').filter(({ Action }) =>
+      [Action].flat().includes('bedrock-agentcore:InvokeGateway'),
+    );
+    expect(invokes).toEqual([
+      expect.objectContaining({
+        Resource: { 'Fn::GetAtt': [expect.stringMatching(/^helperGateway/), 'GatewayArn'] },
+      }),
+    ]);
+  });
+
+  it('creates the harness only after its gateway targets', () => {
+    const [harness] = Object.values(
+      template.findResources('AWS::BedrockAgentCore::Harness', {
+        Properties: { HarnessName: 'agentharness_test_helper' },
+      }),
+    );
+    const [target] = Object.keys(template.findResources('AWS::BedrockAgentCore::GatewayTarget'));
+    expect(harness?.['DependsOn']).toEqual(expect.arrayContaining([target]));
   });
 
   it('keeps the knowledge bucket private', () => {

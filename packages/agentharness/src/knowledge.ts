@@ -1,8 +1,8 @@
 import { Aws, RemovalPolicy, Validations } from 'aws-cdk-lib';
 import { CfnDataSource, CfnKnowledgeBase } from 'aws-cdk-lib/aws-bedrock';
-import { CfnGateway, CfnGatewayTarget } from 'aws-cdk-lib/aws-bedrockagentcore';
 import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
 import { Construct } from 'constructs';
+import type { GatewayTool } from './gateway.js';
 import { fromThisAccount, serviceRole } from './iam.js';
 
 export interface KnowledgeProps {
@@ -13,7 +13,8 @@ export class Knowledge extends Construct {
   readonly bucket: Bucket;
   readonly knowledgeBase: CfnKnowledgeBase;
   readonly dataSource: CfnDataSource;
-  readonly gateway: CfnGateway;
+  /** The Gateway target that lets the agent search this knowledge base. */
+  readonly tool: GatewayTool;
 
   constructor(scope: Construct, id: string, { name }: KnowledgeProps) {
     super(scope, id);
@@ -76,29 +77,9 @@ export class Knowledge extends Construct {
       },
     });
 
-    const gatewayRole = serviceRole(
-      this,
-      'GatewayRole',
-      fromThisAccount('bedrock-agentcore.amazonaws.com'),
-      [
-        {
-          why: 'Search this agent’s knowledge base, and no other.',
-          actions: ['bedrock:GetKnowledgeBase', 'bedrock:Retrieve'],
-          resources: [this.knowledgeBase.attrKnowledgeBaseArn],
-        },
-      ],
-    );
-
-    this.gateway = new CfnGateway(this, 'Gateway', {
-      name,
-      roleArn: gatewayRole.roleArn,
-      authorizerType: 'AWS_IAM',
-      protocolType: 'MCP',
-    });
-
-    new CfnGatewayTarget(this, 'Target', {
+    this.tool = {
       name: 'knowledge',
-      gatewayIdentifier: this.gateway.attrGatewayIdentifier,
+      tools: ['Retrieve'],
       targetConfiguration: {
         mcp: {
           connector: {
@@ -112,7 +93,13 @@ export class Knowledge extends Construct {
           },
         },
       },
-      credentialProviderConfigurations: [{ credentialProviderType: 'GATEWAY_IAM_ROLE' }],
-    });
+      permissions: [
+        {
+          why: 'Search this agent’s knowledge base, and no other.',
+          actions: ['bedrock:GetKnowledgeBase', 'bedrock:Retrieve'],
+          resources: [this.knowledgeBase.attrKnowledgeBaseArn],
+        },
+      ],
+    };
   }
 }
