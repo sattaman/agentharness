@@ -9,7 +9,7 @@
     "record": "node record.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-bedrock-agentcore": "3.1168.0",
+    "@aws-sdk/client-bedrock-agentcore": "3.1174.0",
     "@aws-sdk/client-cloudformation": "3.1169.0",
     "@aws-sdk/client-cognito-identity-provider": "3.1168.0",
     "@aws-sdk/client-dynamodb": "3.1169.0",

@@ -227,8 +227,8 @@ importers:
         specifier: 3.1169.0
         version: 3.1169.0
       '@aws-sdk/client-bedrock-agentcore':
-        specifier: 3.1168.0
-        version: 3.1168.0
+        specifier: 3.1174.0
+        version: 3.1174.0
       '@aws-sdk/client-cloudformation':
         specifier: 3.1169.0
         version: 3.1169.0
@@ -266,8 +266,8 @@ importers:
   tools/smoke:
     dependencies:
       '@aws-sdk/client-bedrock-agentcore':
-        specifier: 3.1168.0
-        version: 3.1168.0
+        specifier: 3.1174.0
+        version: 3.1174.0
       '@aws-sdk/client-cloudformation':
         specifier: 3.1169.0
         version: 3.1169.0
@@ -310,8 +310,8 @@ packages:
     resolution: {integrity: sha512-dZ04SnOFsGDyMXo3TuSCqvW9tGjrgfHcY3aVgvFtyIvV/HlGKgAeysQ0/j8zMmOfs2dQzFoZWZCREzfkfVUQ3g==}
     engines: {node: '>=20.0.0'}
 
-  '@aws-sdk/client-bedrock-agentcore@3.1168.0':
-    resolution: {integrity: sha512-eBr2VeVpHsW1L5Lnxqzg1l2qz+cSBYsbK758ydUG3mg2IX6P6lQrMnK3zU/nD7JgaUas0d7nAuuHOOy5QX8+NQ==}
+  '@aws-sdk/client-bedrock-agentcore@3.1174.0':
+    resolution: {integrity: sha512-8yJthOb9WzTM0etW3JfzQqwHY4+X25T1bX/G9WnjnzE294gM8Az7ZSibxr0zjSXVGrfwFfa2NVa+hiAxKMuW0w==}
     engines: {node: '>=20.0.0'}
 
   '@aws-sdk/client-cloudformation@3.1169.0':
@@ -1493,7 +1493,7 @@ snapshots:
       '@smithy/types': 4.20.0
       tslib: 2.9.1
 
-  '@aws-sdk/client-bedrock-agentcore@3.1168.0':
+  '@aws-sdk/client-bedrock-agentcore@3.1174.0':
     dependencies:
       '@aws-sdk/core': 3.981.0
       '@aws-sdk/credential-provider-node': 3.972.97
